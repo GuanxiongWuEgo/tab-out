@@ -1937,8 +1937,20 @@ function renderSessionsList() {
     listEl.innerHTML = '<div class="sessions-empty">No saved sessions yet. Hit <strong>Save current as session</strong> to capture what you have open.</div>';
     return;
   }
+  // v1.3.1: query chrome.tabs once so we can mark rows that are still
+  // open in the browser with a green indicator dot.
+  renderSessionsListWithOpenUrls(listEl, new Set());
+  chrome.tabs.query({}).then(tabs => {
+    const openUrls = new Set();
+    for (const t of tabs) if (t.url) openUrls.add(t.url);
+    renderSessionsListWithOpenUrls(listEl, openUrls);
+  }).catch(() => { /* leave the no-open version rendered */ });
+}
+
+function renderSessionsListWithOpenUrls(listEl, openUrls) {
+  const dateFmt = (ts) => new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   listEl.innerHTML = sessionsCache.map(s => {
-    const date = new Date(s.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    const date = dateFmt(s.createdAt);
     return `
       <div class="session-row" data-session-id="${escapeHtml(s.id)}">
         <div class="session-row-header" data-action="toggle-session" data-session-id="${escapeHtml(s.id)}">
@@ -1963,32 +1975,34 @@ function renderSessionsList() {
           </div>
         </div>
         <div class="session-tabs" hidden>
-          ${renderSessionTabs(s)}
+          ${renderSessionTabs(s, openUrls)}
         </div>
       </div>`;
   }).join('');
 }
 
 // Render the expanded tab list inside a session row.
-// Shows each saved URL with favicon, hostname, and truncated path.
-// Click on a tab row focuses that tab if it's still open, otherwise
-// just highlights the URL so the user can copy or inspect it.
-function renderSessionTabs(session) {
+// v1.3.1: single-line layout (favicon + hostname/path) + green dot
+// indicator for tabs currently open in the browser.
+function renderSessionTabs(session, openUrls) {
   if (!session.urls || session.urls.length === 0) {
     return '<div class="session-tabs-empty">No tabs in this session.</div>';
   }
   return session.urls.map(url => {
-    let hostname = '', display = url;
+    let hostname = '', pathStr = url;
     try {
       const u = new URL(url);
       hostname = u.hostname;
-      display  = u.hostname + (u.pathname === '/' ? '' : u.pathname);
+      // Show path only when meaningful (not just "/")
+      pathStr  = u.pathname === '/' ? '' : (u.pathname + u.search + u.hash);
     } catch {}
-    return `<div class="session-tab-row" data-action="focus-session-tab" data-session-tab-url="${escapeHtml(url)}" title="${escapeHtml(url)}">
+    const isOpen = openUrls && openUrls.has(url);
+    const cls = 'session-tab-row' + (isOpen ? ' session-tab-row-open' : '');
+    const hint = isOpen ? 'Currently open — click to focus' : 'Click to focus (if open)';
+    return `<div class="${cls}" data-action="focus-session-tab" data-session-tab-url="${escapeHtml(url)}" title="${escapeHtml(url)} | ${hint}">
       <img class="session-tab-favicon" src="${getFaviconUrl(url)}" alt="">
-      <div class="session-tab-body">
-        <div class="session-tab-host">${escapeHtml(hostname || url)}</div>
-        <div class="session-tab-path">${escapeHtml(display)}</div>
+      <div class="session-tab-text">
+        <span class="session-tab-hostname">${escapeHtml(hostname || url)}</span><span class="session-tab-path-mono">${escapeHtml(pathStr)}</span>
       </div>
     </div>`;
   }).join('');
