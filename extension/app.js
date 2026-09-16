@@ -731,22 +731,42 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-// Tiny inline SVG used as the favicon fallback for every tab.
+// Tiny inline SVG used as the favicon fallback for non-http URLs
+// (chrome://, file://, malformed URLs) where no favicon service can help.
 //
 // History:
-//   v1.0  -> used https://www.google.com/s2/favicons (leaks browsing history to Google)
-//   v1.1  -> switched to chrome://favicon/<url> (Chrome's internal endpoint)
-//   v1.2.1 -> discovered chrome://favicon/* CANNOT be loaded from an extension origin
-//           (Chrome blocks it as 'Not allowed to load local resource'). So we
-//           revert to a fully inline SVG. Zero network, zero privacy leak.
-//           The chip's text label is the primary identifier anyway.
+//   v1.0     -> used https://www.google.com/s2/favicons (leaks browsing history to Google)
+//   v1.1     -> switched to chrome://favicon/<url> (Chrome's internal endpoint)
+//   v1.2.1   -> discovered chrome://favicon/* CANNOT be loaded from an extension origin
+//              (Chrome blocks it as 'Not allowed to load local resource'). Reverted
+//              to a fully inline SVG.
+//   v1.2.2   -> user explicitly chose real site favicons over the privacy-first
+//              placeholder. Switched to DuckDuckGo's favicon proxy at
+//              icons.duckduckgo.com/ip3/<domain>.ico. DDG's privacy policy is
+//              meaningfully better than Google's s2 service: they don't log
+//              user IPs or correlate favicon fetches with browsing history.
+//
+// Trade-off you accepted: every domain you have open is now sent to
+// DuckDuckGo (one HTTPS request per domain, cached on their CDN). If you
+// later want to drop the network entirely, switch to a colored monogram
+// fallback by replacing getFaviconUrl() with one that returns the
+// colored-letter SVG below.
 const FALLBACK_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#d4b896"/><text x="8" y="11.5" font-family="system-ui, sans-serif" font-size="9" font-weight="600" text-anchor="middle" fill="#5a4a32">?</text></svg>`;
 const FALLBACK_FAVICON_DATAURI = 'data:image/svg+xml;utf8,' + encodeURIComponent(FALLBACK_FAVICON_SVG);
 
 function getFaviconUrl(tabUrl) {
-  // tabUrl is kept in the signature for API stability, but we always
-  // return the inline SVG. See comment on FALLBACK_FAVICON_SVG above.
-  void tabUrl;
+  if (!tabUrl) return FALLBACK_FAVICON_DATAURI;
+  try {
+    const u = new URL(tabUrl);
+    if ((u.protocol === 'http:' || u.protocol === 'https:') && u.hostname) {
+      // DuckDuckGo's favicon proxy. Returns the original site favicon.
+      // https://icons.duckduckgo.com/ip3/<domain>.ico
+      // Note: this requires host_permissions in manifest.json:
+      //   "host_permissions": ["https://icons.duckduckgo.com/*"]
+      return 'https://icons.duckduckgo.com/ip3/' + encodeURIComponent(u.hostname) + '.ico';
+    }
+  } catch {}
+  // file://, chrome://, about:, malformed URLs → inline SVG placeholder
   return FALLBACK_FAVICON_DATAURI;
 }
 

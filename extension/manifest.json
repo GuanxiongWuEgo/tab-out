@@ -1,9 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Tab Out",
-  "version": "1.2.0",
+  "version": "1.2.2",
   "description": "Keep tabs on your tabs. New tab page that groups your open tabs by domain, lets you close them with style, and adds Cmd-K global search + Vim-style keyboard nav + tab sessions + drag-reorder. No server, no account, 100% local.",
   "permissions": ["tabs", "activeTab", "storage"],
+  "host_permissions": ["https://icons.duckduckgo.com/*"],
   "chrome_url_overrides": { "newtab": "index.html" },
   "background": { "service_worker": "background.js" },
   "action": {
