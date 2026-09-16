@@ -1538,6 +1538,29 @@ header {
   box-shadow: 0 2px 12px rgba(45, 38, 30, 0.10);
 }
 
+/* v1.5: drag-to-reorder. The row is draggable=true; the grab cursor
+   invites the user to try it. While dragging, the row becomes
+   semi-transparent and slightly rotated. While hovering a drop target,
+   that row gets an amber top-border so you can see exactly where the
+   dragged row will land. */
+.session-row[draggable="true"] {
+  cursor: grab;
+}
+.session-row[draggable="true"]:active {
+  cursor: grabbing;
+}
+.session-row.session-row-dragging {
+  opacity: 0.45;
+  transform: rotate(-0.5deg);
+  background: rgba(200, 113, 58, 0.06);
+}
+.session-row.session-row-drag-over {
+  border-top: 2px solid var(--accent-amber, #c8713a);
+  padding-top: 0;            /* offset the extra border so layout doesn't jump */
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+}
+
 .session-row-main {
   flex: 1;
   min-width: 0;

@@ -27,11 +27,13 @@
 // declarations further down.
 // ----------------------------------------------------------------
 
-const STORAGE_SESSIONS     = 'sessions';
-const STORAGE_DOMAIN_ORDER = 'domainOrder';
+const STORAGE_SESSIONS      = 'sessions';
+const STORAGE_DOMAIN_ORDER  = 'domainOrder';
+const STORAGE_SESSION_ORDER = 'sessionOrder'; // v1.5: manual order of saved sessions
 
-let sessionsCache    = []; // [{ id, name, createdAt, urls: [] }]
-let domainOrderCache = []; // array of domain strings, in display order
+let sessionsCache      = []; // [{ id, name, createdAt, urls: [], titles: [] }]
+let domainOrderCache   = []; // array of domain strings, in display order
+let sessionOrderCache  = []; // v1.5: array of session IDs in user-defined order
 
 
 /* ----------------------------------------------------------------
@@ -1592,6 +1594,7 @@ document.addEventListener('error', (e) => {
 renderDashboard();
 initSessionsUI();
 loadAndApplyDomainOrder();
+loadAndApplySessionOrder();
 
 
 // ===================================================================
@@ -1835,7 +1838,13 @@ async function createSessionFromOpenTabs(name) {
     titles,
   };
   sessionsCache.unshift(session); // newest first
+  // v1.5: prepend to manual order so newest session lands at the top
+  // of the user-ordered list (sortSessionsByUserOrder otherwise
+  // appends unknowns to the end, which contradicts the UX expectation
+  // that "the most recent save is the one you just made").
+  sessionOrderCache = [session.id, ...sessionOrderCache.filter(id => id !== session.id)];
   await persistSessions();
+  await persistSessionOrder();
   renderSessionsList();
   showToast(`Saved session "${cleanName}" · ${session.urls.length} tabs`);
   return session;
@@ -1961,22 +1970,24 @@ function renderSessionsList() {
     listEl.innerHTML = '<div class="sessions-empty">No saved sessions yet. Hit <strong>Save current as session</strong> to capture what you have open.</div>';
     return;
   }
+  // v1.5: apply user-defined session order before rendering.
+  const orderedSessions = sortSessionsByUserOrder(sessionsCache);
   // v1.3.1: query chrome.tabs once so we can mark rows that are still
   // open in the browser with a green indicator dot.
-  renderSessionsListWithOpenUrls(listEl, new Set());
+  renderSessionsListWithOpenUrls(listEl, orderedSessions, new Set());
   chrome.tabs.query({}).then(tabs => {
     const openUrls = new Set();
     for (const t of tabs) if (t.url) openUrls.add(t.url);
-    renderSessionsListWithOpenUrls(listEl, openUrls);
+    renderSessionsListWithOpenUrls(listEl, orderedSessions, openUrls);
   }).catch(() => { /* leave the no-open version rendered */ });
 }
 
-function renderSessionsListWithOpenUrls(listEl, openUrls) {
+function renderSessionsListWithOpenUrls(listEl, orderedSessions, openUrls) {
   const dateFmt = (ts) => new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  listEl.innerHTML = sessionsCache.map(s => {
+  listEl.innerHTML = orderedSessions.map(s => {
     const date = dateFmt(s.createdAt);
     return `
-      <div class="session-row" data-session-id="${escapeHtml(s.id)}">
+      <div class="session-row" data-session-id="${escapeHtml(s.id)}" draggable="true" title="Drag to reorder">
         <div class="session-row-header" data-action="toggle-session" data-session-id="${escapeHtml(s.id)}">
           <svg class="session-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
           <div class="session-row-main">
@@ -2053,8 +2064,53 @@ async function renameSessionTab(sessionId, idx, newTitle) {
   renderSessionsList();
 }
 
-// ---------- Domain-order persistence -------------------------------
+// ---------- Session-order persistence (v1.5) -----------------------
+async function loadSessionOrder() {
+  try {
+    const { [STORAGE_SESSION_ORDER]: arr = [] } = await chrome.storage.local.get(STORAGE_SESSION_ORDER);
+    sessionOrderCache = Array.isArray(arr) ? arr : [];
+  } catch {
+    sessionOrderCache = [];
+  }
+  return sessionOrderCache;
+}
 
+async function persistSessionOrder() {
+  try {
+    await chrome.storage.local.set({ [STORAGE_SESSION_ORDER]: sessionOrderCache });
+  } catch (err) {
+    console.warn('[tab-out] persistSessionOrder failed:', err);
+  }
+}
+
+// Stable sort of an array of session objects by sessionOrderCache.
+// Sessions not in the cache go to the bottom, preserving their current
+// relative order. The cache is updated to include any new sessions.
+// v1.5: parallel to sortDomainsByUserOrder.
+function sortSessionsByUserOrder(sessions) {
+  if (!sessionOrderCache || sessionOrderCache.length === 0) return sessions;
+  const orderIndex = new Map();
+  sessionOrderCache.forEach((id, i) => orderIndex.set(id, i));
+  const known = [];
+  const unknown = [];
+  for (const s of sessions) {
+    if (orderIndex.has(s.id)) known.push(s);
+    else unknown.push(s);
+  }
+  known.sort((a, b) => orderIndex.get(a.id) - orderIndex.get(b.id));
+  const merged = known.concat(unknown);
+  // Append unknown sessions (those without explicit user order)
+  const newIds = unknown.map(s => s.id);
+  if (newIds.length) {
+    for (const id of newIds) {
+      if (!sessionOrderCache.includes(id)) sessionOrderCache.push(id);
+    }
+    persistSessionOrder();
+  }
+  return merged;
+}
+
+// ---------- Domain-order persistence -------------------------------
 async function loadDomainOrder() {
   try {
     const { [STORAGE_DOMAIN_ORDER]: arr = [] } = await chrome.storage.local.get(STORAGE_DOMAIN_ORDER);
@@ -2078,6 +2134,13 @@ async function loadAndApplyDomainOrder() {
   // Re-render once if we have a stored order; the next renderStaticDashboard
   // call will pick it up automatically through sortDomainsByUserOrder().
   renderDashboard();
+}
+
+// v1.5: load the user's saved session order. The next renderSessionsList()
+// call will pick it up automatically through sortSessionsByUserOrder().
+async function loadAndApplySessionOrder() {
+  await loadSessionOrder();
+  renderSessionsList();
 }
 
 // Stable sort of an array of group objects by domainOrderCache.
@@ -2115,6 +2178,69 @@ function sortDomainsByUserOrder(groups) {
   }
 
   return merged;
+}
+
+// ---------- Drag-and-drop on session rows (v1.5) -------------------
+let draggedSessionId = null;
+
+function attachSessionDragHandlers() {
+  const container = document.getElementById('sessionsList');
+  if (!container) return;
+
+  container.addEventListener('dragstart', (e) => {
+    const row = e.target.closest('.session-row[data-session-id]');
+    if (!row) return;
+    draggedSessionId = row.dataset.sessionId;
+    row.classList.add('session-row-dragging');
+    try { e.dataTransfer.setData('text/plain', draggedSessionId); } catch {}
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  container.addEventListener('dragend', () => {
+    if (draggedSessionId) {
+      const el = container.querySelector(`.session-row[data-session-id="${CSS.escape(draggedSessionId)}"]`);
+      if (el) el.classList.remove('session-row-dragging');
+    }
+    container.querySelectorAll('.session-row-drag-over').forEach(el => el.classList.remove('session-row-drag-over'));
+    draggedSessionId = null;
+  });
+
+  container.addEventListener('dragover', (e) => {
+    const row = e.target.closest('.session-row[data-session-id]');
+    if (!row) return;
+    if (!draggedSessionId) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    container.querySelectorAll('.session-row-drag-over').forEach(el => el.classList.remove('session-row-drag-over'));
+    row.classList.add('session-row-drag-over');
+  });
+
+  container.addEventListener('dragleave', (e) => {
+    const row = e.target.closest('.session-row[data-session-id]');
+    if (!row) return;
+    if (!row.contains(e.relatedTarget)) row.classList.remove('session-row-drag-over');
+  });
+
+  container.addEventListener('drop', async (e) => {
+    const targetRow = e.target.closest('.session-row[data-session-id]');
+    if (!targetRow || !draggedSessionId) return;
+    e.preventDefault();
+    const targetId = targetRow.dataset.sessionId;
+    if (targetId === draggedSessionId) return;
+    // Reorder the cache: remove draggedSessionId, insert before targetId.
+    const i1 = sessionOrderCache.indexOf(draggedSessionId);
+    const i2 = sessionOrderCache.indexOf(targetId);
+    if (i1 === -1) sessionOrderCache.push(draggedSessionId);
+    if (i2 === -1) sessionOrderCache.push(targetId);
+    const newOrder = sessionOrderCache.filter(id => id !== draggedSessionId);
+    const insertAt = newOrder.indexOf(targetId);
+    newOrder.splice(insertAt, 0, draggedSessionId);
+    sessionOrderCache = newOrder;
+    await persistSessionOrder();
+    targetRow.classList.remove('session-row-drag-over');
+    renderSessionsList();
+    showToast('Session order saved');
+  });
 }
 
 // ---------- Drag-and-drop on domain cards --------------------------
@@ -2189,6 +2315,7 @@ function attachDragHandlers() {
 
 // Initial attach
 attachDragHandlers();
+attachSessionDragHandlers();
 
 // ---------- Click handlers for session rows (delegated) ------------
 // Hook into the existing global click handler by adding cases for the
