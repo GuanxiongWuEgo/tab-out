@@ -798,7 +798,7 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const safeTitle = escapeHtml(label);
     const faviconUrl = getFaviconUrl(tab.url);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      <img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">
+      <img class="chip-favicon" src="${faviconUrl}" alt="">
       <span class="chip-text">${safeTitle}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -877,7 +877,7 @@ function renderDomainCard(group) {
     const safeTitle = escapeHtml(label);
     const faviconUrl = getFaviconUrl(tab.url);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      <img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">
+      <img class="chip-favicon" src="${faviconUrl}" alt="">
       <span class="chip-text">${safeTitle}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
@@ -1009,7 +1009,7 @@ function renderDeferredItem(item) {
       <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${escapeHtml(item.id)}">
       <div class="deferred-info">
         <a href="${safeUrl}" target="_blank" rel="noopener" class="deferred-title" title="${safeTitle}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${safeTitle}
+          <img class="deferred-favicon" src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px">${safeTitle}
         </a>
         <div class="deferred-meta">
           <span>${safeDomain}</span>
@@ -1526,6 +1526,21 @@ document.addEventListener('input', async (e) => {
 /* ----------------------------------------------------------------
    INITIALIZE
    ---------------------------------------------------------------- */
+
+// MV3 CSP forbids inline event handlers (e.g. onerror="..."). Hide
+// broken favicon imgs via a single delegated listener at the document
+// level. <img> error events don't bubble, so we use capture phase.
+document.addEventListener('error', (e) => {
+  const el = e.target;
+  if (!el || el.tagName !== 'IMG') return;
+  // All favicon imgs share one of these classes
+  if (el.classList.contains('chip-favicon') ||
+      el.classList.contains('palette-result-favicon') ||
+      el.classList.contains('deferred-favicon')) {
+    el.style.display = 'none';
+  }
+}, true);
+
 renderDashboard();
 initSessionsUI();
 loadAndApplyDomainOrder();
@@ -1687,7 +1702,7 @@ function renderPaletteResults(query) {
     const title = r.titleHL || escapeHtml(tab.title || tab.url || '');
     const url   = r.urlHL   || escapeHtml(tab.url || '');
     return `<div class="palette-result${i === 0 ? ' palette-result-selected' : ''}" data-idx="${i}">
-      <img class="palette-result-favicon" src="${fav}" alt="" onerror="this.style.display='none'">
+      <img class="palette-result-favicon" src="${fav}" alt="">
       <div class="palette-result-body">
         <div class="palette-result-title">${title}</div>
         <div class="palette-result-url">${url}</div>
