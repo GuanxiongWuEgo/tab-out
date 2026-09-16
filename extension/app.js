@@ -27,13 +27,15 @@
 // declarations further down.
 // ----------------------------------------------------------------
 
-const STORAGE_SESSIONS      = 'sessions';
-const STORAGE_DOMAIN_ORDER  = 'domainOrder';
-const STORAGE_SESSION_ORDER = 'sessionOrder'; // v1.5: manual order of saved sessions
+const STORAGE_SESSIONS          = 'sessions';
+const STORAGE_DOMAIN_ORDER      = 'domainOrder';
+const STORAGE_SESSION_ORDER     = 'sessionOrder'; // v1.5: manual order of saved sessions
+const STORAGE_SESSION_TAB_ORDER = 'sessionTabOrder'; // v1.6: per-session tab URL order
 
-let sessionsCache      = []; // [{ id, name, createdAt, urls: [], titles: [] }]
-let domainOrderCache   = []; // array of domain strings, in display order
-let sessionOrderCache  = []; // v1.5: array of session IDs in user-defined order
+let sessionsCache          = []; // [{ id, name, createdAt, urls: [], titles: [] }]
+let domainOrderCache       = []; // array of domain strings, in display order
+let sessionOrderCache      = []; // v1.5: array of session IDs in user-defined order
+let sessionTabOrderCache   = {}; // v1.6: { [sessionId]: string[] } URL order per session
 
 
 /* ----------------------------------------------------------------
@@ -1595,6 +1597,7 @@ renderDashboard();
 initSessionsUI();
 loadAndApplyDomainOrder();
 loadAndApplySessionOrder();
+loadAndApplySessionTabOrder();
 
 
 // ===================================================================
@@ -1843,8 +1846,11 @@ async function createSessionFromOpenTabs(name) {
   // appends unknowns to the end, which contradicts the UX expectation
   // that "the most recent save is the one you just made").
   sessionOrderCache = [session.id, ...sessionOrderCache.filter(id => id !== session.id)];
+  // v1.6: seed per-session tab-order cache with the natural order.
+  sessionTabOrderCache[session.id] = urls.slice();
   await persistSessions();
   await persistSessionOrder();
+  await persistSessionTabOrder();
   renderSessionsList();
   showToast(`Saved session "${cleanName}" · ${session.urls.length} tabs`);
   return session;
@@ -1985,6 +1991,8 @@ function renderSessionsList() {
 function renderSessionsListWithOpenUrls(listEl, orderedSessions, openUrls) {
   const dateFmt = (ts) => new Date(ts).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   listEl.innerHTML = orderedSessions.map(s => {
+    // v1.6: apply per-session tab order before rendering expanded list.
+    const sorted = sortedSessionTabs(s);
     const date = dateFmt(s.createdAt);
     return `
       <div class="session-row" data-session-id="${escapeHtml(s.id)}" draggable="true" title="Drag to reorder">
@@ -2010,7 +2018,7 @@ function renderSessionsListWithOpenUrls(listEl, orderedSessions, openUrls) {
           </div>
         </div>
         <div class="session-tabs" hidden>
-          ${renderSessionTabs(s, openUrls)}
+          ${renderSessionTabs(s, openUrls, sorted.urls, sorted.titles)}
         </div>
       </div>`;
   }).join('');
@@ -2018,14 +2026,17 @@ function renderSessionsListWithOpenUrls(listEl, orderedSessions, openUrls) {
 
 // Render the expanded tab list inside a session row.
 // v1.4: two-line layout (title on top, hostname/path muted below) +
-// per-row pencil for inline rename. Falls back to hostname for old
-// sessions that were saved without a titles[] array.
-function renderSessionTabs(session, openUrls) {
-  if (!session.urls || session.urls.length === 0) {
+// per-row pencil for inline rename. v1.6: accepts pre-sorted urls and
+// titles (parallel arrays, both in display order). If sorted not
+// provided, falls back to session.urls / session.titles (legacy path).
+function renderSessionTabs(session, openUrls, sortedUrls, sortedTitles) {
+  const urls   = Array.isArray(sortedUrls)   ? sortedUrls   : session.urls;
+  const titles = Array.isArray(sortedTitles) ? sortedTitles : session.titles;
+  if (!urls || urls.length === 0) {
     return '<div class="session-tabs-empty">No tabs in this session.</div>';
   }
-  return session.urls.map((url, idx) => {
-    const title = (session.titles && session.titles[idx]) || hostnameFromUrl(url) || url;
+  return urls.map((url, idx) => {
+    const title = (titles && titles[idx]) || hostnameFromUrl(url) || url;
     let hostname = '', pathStr = '';
     try {
       const u = new URL(url);
@@ -2035,13 +2046,16 @@ function renderSessionTabs(session, openUrls) {
     const isOpen = openUrls && openUrls.has(url);
     const cls = 'session-tab-row' + (isOpen ? ' session-tab-row-open' : '');
     const hint = isOpen ? 'Currently open — click to focus' : 'Click to focus (if open)';
-    return `<div class="${cls}" data-action="focus-session-tab" data-session-tab-url="${escapeHtml(url)}" data-session-tab-idx="${idx}" title="${escapeHtml(url)} | ${hint}">
+    return `<div class="${cls}" data-action="focus-session-tab" data-session-tab-url="${escapeHtml(url)}" data-session-tab-idx="${idx}" data-session-id="${escapeHtml(session.id)}" title="${escapeHtml(url)} | ${hint}" draggable="true">
       <img class="session-tab-favicon" src="${getFaviconUrl(url)}" alt="">
       <div class="session-tab-text">
         <div class="session-tab-title">${escapeHtml(title)}</div>
         <div class="session-tab-sub"><span class="session-tab-hostname">${escapeHtml(hostname)}</span><span class="session-tab-path-mono">${escapeHtml(pathStr)}</span></div>
       </div>
-      <button class="session-tab-rename" data-action="rename-session-tab" data-session-id="${escapeHtml(session.id)}" data-session-tab-idx="${idx}" title="Rename" aria-label="Rename tab">
+      <span class="session-tab-drag-handle" aria-hidden="true">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="currentColor" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.4"/><circle cx="15" cy="6" r="1.4"/><circle cx="9" cy="12" r="1.4"/><circle cx="15" cy="12" r="1.4"/><circle cx="9" cy="18" r="1.4"/><circle cx="15" cy="18" r="1.4"/></svg>
+      </span>
+      <button class="session-tab-rename" data-action="rename-session-tab" data-session-id="${escapeHtml(session.id)}" data-session-tab-url="${escapeHtml(url)}" title="Rename" aria-label="Rename tab">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>
       </button>
     </div>`;
@@ -2049,11 +2063,13 @@ function renderSessionTabs(session, openUrls) {
 }
 
 // v1.4: inline-rename a single tab inside an expanded session.
-// Replaces the title cell with an input; on blur or Enter, persists.
-async function renameSessionTab(sessionId, idx, newTitle) {
+// v1.6: keyed by URL (not idx) so renaming doesn't break after reorder.
+async function renameSessionTab(sessionId, url, newTitle) {
   const s = sessionsCache.find(x => x.id === sessionId);
   if (!s) return;
   if (!Array.isArray(s.titles)) s.titles = s.urls.map(() => '');
+  const idx = s.urls.indexOf(url);
+  if (idx === -1) return;
   const clean = (newTitle || '').trim();
   if (!clean) {
     renderSessionsList();  // revert input visually
@@ -2140,6 +2156,76 @@ async function loadAndApplyDomainOrder() {
 // call will pick it up automatically through sortSessionsByUserOrder().
 async function loadAndApplySessionOrder() {
   await loadSessionOrder();
+  renderSessionsList();
+}
+
+// ---------- Session-tab-order persistence (v1.6) ------------------
+async function loadSessionTabOrder() {
+  try {
+    const { [STORAGE_SESSION_TAB_ORDER]: obj = {} } = await chrome.storage.local.get(STORAGE_SESSION_TAB_ORDER);
+    sessionTabOrderCache = (obj && typeof obj === 'object' && !Array.isArray(obj)) ? obj : {};
+  } catch {
+    sessionTabOrderCache = {};
+  }
+  return sessionTabOrderCache;
+}
+
+async function persistSessionTabOrder() {
+  try {
+    await chrome.storage.local.set({ [STORAGE_SESSION_TAB_ORDER]: sessionTabOrderCache });
+  } catch (err) {
+    console.warn('[tab-out] persistSessionTabOrder failed:', err);
+  }
+}
+
+// Returns { urls, titles } for a session, reordered to match the
+// user's stored tab order. URLs not in the order list are appended
+// in their natural order. The order cache is updated to include any
+// newly-seen URLs (e.g. after a restore + save round-trip).
+function sortedSessionTabs(session) {
+  if (!session || !session.urls || session.urls.length === 0) {
+    return { urls: [], titles: [] };
+  }
+  const stored = sessionTabOrderCache[session.id];
+  if (!Array.isArray(stored) || stored.length === 0) {
+    return { urls: session.urls.slice(), titles: (session.titles || []).slice() };
+  }
+  const urlIndex = new Map();
+  session.urls.forEach((u, i) => urlIndex.set(u, i));
+  const titlesByUrl = new Map();
+  session.urls.forEach((u, i) => titlesByUrl.set(u, (session.titles || [])[i] || ''));
+  const seen = new Set();
+  const urls = [];
+  const titles = [];
+  // First pass: stored order (only URLs that still exist in this session)
+  for (const u of stored) {
+    if (urlIndex.has(u) && !seen.has(u)) {
+      seen.add(u);
+      urls.push(u);
+      titles.push(titlesByUrl.get(u));
+    }
+  }
+  // Second pass: URLs that exist but aren't in the stored order
+  const newStoredUrls = [];
+  for (const u of session.urls) {
+    if (!seen.has(u)) {
+      seen.add(u);
+      urls.push(u);
+      titles.push(titlesByUrl.get(u));
+      newStoredUrls.push(u);
+    }
+  }
+  // Update cache so the next render is consistent
+  if (newStoredUrls.length) {
+    sessionTabOrderCache[session.id] = urls.slice();
+    persistSessionTabOrder();
+  }
+  return { urls, titles };
+}
+
+// v1.6: load the user's saved tab order per session and re-render.
+async function loadAndApplySessionTabOrder() {
+  await loadSessionTabOrder();
   renderSessionsList();
 }
 
@@ -2243,6 +2329,96 @@ function attachSessionDragHandlers() {
   });
 }
 
+// ---------- Drag-and-drop on session rows (v1.5) ------------------
+// (Implementation lives further down this file — see
+// attachSessionDragHandlers below attachSessionTabDragHandlers.)
+
+// ---------- Drag-and-drop on tabs inside expanded sessions (v1.6) --
+let draggedSessionTabKey = null;  // "{sessionId}|{url}"
+
+function sessionTabKey(sessionId, url) {
+  return sessionId + '|' + url;
+}
+
+function attachSessionTabDragHandlers() {
+  const container = document.getElementById('sessionsList');
+  if (!container) return;
+
+  container.addEventListener('dragstart', (e) => {
+    const row = e.target.closest('.session-tab-row[data-session-tab-url]');
+    if (!row) return;
+    const sid = row.dataset.sessionId;
+    const url = row.dataset.sessionTabUrl;
+    draggedSessionTabKey = sessionTabKey(sid, url);
+    row.classList.add('session-tab-row-dragging');
+    try { e.dataTransfer.setData('text/plain', draggedSessionTabKey); } catch {}
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  container.addEventListener('dragend', (e) => {
+    // Only clean up if this dragend is from a session-tab-row drag.
+    const startedOnTab = e.target.closest && e.target.closest('.session-tab-row[data-session-tab-url]');
+    if (!startedOnTab) return;
+    container.querySelectorAll('.session-tab-row-dragging').forEach(el => el.classList.remove('session-tab-row-dragging'));
+    container.querySelectorAll('.session-tab-row-drag-over').forEach(el => el.classList.remove('session-tab-row-drag-over'));
+    draggedSessionTabKey = null;
+  });
+
+  container.addEventListener('dragover', (e) => {
+    const row = e.target.closest('.session-tab-row[data-session-tab-url]');
+    if (!row) return;
+    if (!draggedSessionTabKey) return;
+    // Make sure the drag is within the same session — cross-session
+    // tab drag would corrupt the per-session cache.
+    const targetSid = row.dataset.sessionId;
+    const dragSid   = draggedSessionTabKey.split('|')[0];
+    if (targetSid !== dragSid) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    container.querySelectorAll('.session-tab-row-drag-over').forEach(el => el.classList.remove('session-tab-row-drag-over'));
+    row.classList.add('session-tab-row-drag-over');
+  });
+
+  container.addEventListener('dragleave', (e) => {
+    const row = e.target.closest('.session-tab-row[data-session-tab-url]');
+    if (!row) return;
+    if (!row.contains(e.relatedTarget)) row.classList.remove('session-tab-row-drag-over');
+  });
+
+  container.addEventListener('drop', async (e) => {
+    const targetRow = e.target.closest('.session-tab-row[data-session-tab-url]');
+    if (!targetRow || !draggedSessionTabKey) return;
+    const targetSid = targetRow.dataset.sessionId;
+    const targetUrl = targetRow.dataset.sessionTabUrl;
+    const dragSid   = draggedSessionTabKey.split('|')[0];
+    const dragUrl   = draggedSessionTabKey.split('|')[1];
+    if (targetSid !== dragSid) return;  // cross-session: ignore
+    if (targetUrl === dragUrl) return;  // same row: ignore
+    e.preventDefault();
+    // Reorder: move dragUrl to before targetUrl in sessionTabOrderCache[sessionId].
+    const order = Array.isArray(sessionTabOrderCache[dragSid]) ? sessionTabOrderCache[dragSid].slice() : [];
+    // Ensure both URLs are present (they should be, but defensive)
+    if (!order.includes(dragUrl)) order.push(dragUrl);
+    if (!order.includes(targetUrl)) order.push(targetUrl);
+    const filtered = order.filter(u => u !== dragUrl);
+    const insertAt = filtered.indexOf(targetUrl);
+    filtered.splice(insertAt, 0, dragUrl);
+    sessionTabOrderCache[dragSid] = filtered;
+    await persistSessionTabOrder();
+    targetRow.classList.remove('session-tab-row-drag-over');
+    renderSessionsList();
+    // Re-expand the row so the user sees the new order without having
+    // to click the chevron again.
+    const newRow = document.querySelector(`.session-row[data-session-id="${CSS.escape(dragSid)}"]`);
+    if (newRow) {
+      const tabs = newRow.querySelector('.session-tabs');
+      const chev = newRow.querySelector('.session-chevron');
+      if (tabs && tabs.hidden) { tabs.hidden = false; chev && chev.classList.add('session-chevron-open'); newRow.classList.add('session-row-expanded'); }
+    }
+    showToast('Tab order saved');
+  });
+}
+
 // ---------- Drag-and-drop on domain cards --------------------------
 let draggedDomain = null;
 
@@ -2316,6 +2492,7 @@ function attachDragHandlers() {
 // Initial attach
 attachDragHandlers();
 attachSessionDragHandlers();
+attachSessionTabDragHandlers();
 
 // ---------- Click handlers for session rows (delegated) ------------
 // Hook into the existing global click handler by adding cases for the
@@ -2372,6 +2549,38 @@ document.addEventListener('click', async (e) => {
     if (next != null && next.trim() && next !== s.name) {
       await renameSession(id, next);
     }
+    return;
+  }
+  // v1.4/v1.6: per-tab inline rename. Click the pencil inside an
+  // expanded tab row — swap the title cell for an <input>, save on
+  // blur or Enter, revert on Escape. v1.6: keyed by URL (not idx).
+  if (action === 'rename-session-tab') {
+    e.stopPropagation();
+    e.preventDefault();
+    const rowEl  = el.closest('.session-tab-row');
+    const titleEl = rowEl && rowEl.querySelector('.session-tab-title');
+    if (!rowEl || !titleEl) return;
+    if (titleEl.querySelector('input')) return;   // already editing
+    const sessionId = el.dataset.sessionId;
+    const url       = el.dataset.sessionTabUrl;
+    const current   = titleEl.textContent;
+    titleEl.innerHTML = `<input class="session-tab-title-input" value="${escapeHtml(current)}" />`;
+    const input = titleEl.querySelector('input');
+    input.focus();
+    input.select();
+    const commit = async () => {
+      const next = input.value.trim();
+      if (next && next !== current) {
+        await renameSessionTab(sessionId, url, next);
+      } else {
+        renderSessionsList();
+      }
+    };
+    input.addEventListener('blur', commit, { once: true });
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+      if (ev.key === 'Escape') { ev.preventDefault(); input.value = current; input.blur(); }
+    });
     return;
   }
 });

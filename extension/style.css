@@ -1951,6 +1951,46 @@ header {
   box-shadow: 0 0 0 2px rgba(200, 113, 58, 0.15);
 }
 
+/* v1.6: drag-to-reorder individual tabs inside expanded sessions.
+   The drag handle is the 6-dot icon on the right of each row. It
+   shows muted by default, brightens on row hover. The whole row is
+   draggable, but the cursor + handle are the visual hint. */
+.session-tab-row[draggable="true"] {
+  cursor: grab;
+}
+.session-tab-row[draggable="true"]:active {
+  cursor: grabbing;
+}
+.session-tab-drag-handle {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted, #8a7e6e);
+  opacity: 0.3;
+  transition: opacity 0.12s, color 0.12s;
+  margin-left: 4px;
+}
+.session-tab-drag-handle svg {
+  width: 12px;
+  height: 12px;
+}
+.session-tab-row:hover .session-tab-drag-handle {
+  opacity: 0.85;
+  color: var(--accent-amber, #c8713a);
+}
+.session-tab-row.session-tab-row-dragging {
+  opacity: 0.45;
+  transform: rotate(-0.4deg);
+  background: rgba(200, 113, 58, 0.06);
+}
+.session-tab-row.session-tab-row-drag-over {
+  border-top: 2px solid var(--accent-amber, #c8713a);
+  padding-top: 5px;   /* offset the extra border so layout doesn't jump */
+}
+
 /* v1.3.1: small green dot for tabs currently open in the browser */
 .session-tab-row-open {
   background: rgba(76, 153, 76, 0.06);
