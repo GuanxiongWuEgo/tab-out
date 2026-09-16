@@ -1595,29 +1595,22 @@ loadAndApplyDomainOrder();
 
 
 // ===================================================================
-// SEARCH PALETTE  +  KEYBOARD SHORTCUTS
+// SEARCH PALETTE  (click-triggered — keyboard shortcuts removed in v1.3)
 // ===================================================================
-// Added in fork: /  Cmd-K  j  k  Enter  x  s  Esc
-//
-// The palette is a Cmd/Ctrl+K command-bar that searches across every
-// open tab by title and URL. j/k on the main view move a selection
-// cursor through the visible chips; Enter jumps to the selected tab,
-// x closes it, s saves it for later. / opens the palette. Esc clears.
+// The palette is a search overlay that filters every open tab by
+// title and URL. Originally opened with Cmd/Ctrl+K or '/'; all
+// keyboard navigation (j/k/Enter/x/Esc/Cmd-K) was removed in v1.3
+// at the user's request — the palette is now opened via the search
+// button in the header and operated via mouse/typing only.
 // ===================================================================
 
 const palette = {
-  el:        null,        // overlay
-  input:     null,        // search input
-  results:   null,        // results container
-  empty:     null,        // empty-state element
-  isOpen:    false,
-  selected:  0,           // index into current results
-  resultsList: [],        // last filtered results
-};
-
-const mainNav = {
-  chips:     [],          // flat list of .page-chip elements (in DOM order)
-  selected: -1,           // index into chips, -1 = none
+  el:          null,        // overlay
+  input:       null,        // search input
+  results:     null,        // results container
+  empty:       null,        // empty-state element
+  isOpen:      false,
+  resultsList: [],          // last filtered results
 };
 
 // ---- DOM refs (filled at boot) ----------------------------------
@@ -1735,7 +1728,6 @@ function togglePalette() {
 
 function renderPaletteResults(query) {
   palette.resultsList = filterOpenTabs(query);
-  palette.selected = 0;
 
   if (palette.resultsList.length === 0) {
     palette.results.innerHTML = '';
@@ -1749,7 +1741,7 @@ function renderPaletteResults(query) {
     const fav   = getFaviconUrl(tab.url);
     const title = r.titleHL || escapeHtml(tab.title || tab.url || '');
     const url   = r.urlHL   || escapeHtml(tab.url || '');
-    return `<div class="palette-result${i === 0 ? ' palette-result-selected' : ''}" data-idx="${i}">
+    return `<div class="palette-result" data-idx="${i}">
       <img class="palette-result-favicon" src="${fav}" alt="">
       <div class="palette-result-body">
         <div class="palette-result-title">${title}</div>
@@ -1760,222 +1752,8 @@ function renderPaletteResults(query) {
   }).join('');
 }
 
-function setPaletteSelected(delta) {
-  if (palette.resultsList.length === 0) return;
-  const n = palette.resultsList.length;
-  palette.selected = (palette.selected + delta + n) % n;
-  const rows = palette.results.querySelectorAll('.palette-result');
-  rows.forEach((r, i) => r.classList.toggle('palette-result-selected', i === palette.selected));
-  rows[palette.selected]?.scrollIntoView({ block: 'nearest' });
-}
-
-function paletteSelectedTab() {
-  return palette.resultsList[palette.selected]?.tab || null;
-}
-
-// ---- Main-view selection cursor (j/k on the dashboard) ----------
-function refreshMainChips() {
-  // Flatten all visible chips across all domain cards, in DOM order
-  mainNav.chips = Array.from(document.querySelectorAll('#openTabsMissions .page-chip'));
-  if (mainNav.selected >= mainNav.chips.length) mainNav.selected = mainNav.chips.length - 1;
-  if (mainNav.chips.length > 0 && mainNav.selected === -1) {
-    // don't auto-select on first render; let the user press j to start
-    mainNav.selected = -1;
-  }
-}
-
-function setMainSelected(delta) {
-  if (mainNav.chips.length === 0) return;
-  let next = mainNav.selected + delta;
-  if (next < 0) next = 0;
-  if (next >= mainNav.chips.length) next = mainNav.chips.length - 1;
-  mainNav.selected = next;
-  mainNav.chips.forEach((el, i) => el.classList.toggle('chip-selected', i === mainNav.selected));
-  mainNav.chips[mainNav.selected]?.scrollIntoView({ block: 'nearest' });
-}
-
-function clearMainSelected() {
-  mainNav.chips.forEach(el => el.classList.remove('chip-selected'));
-  mainNav.selected = -1;
-}
-
-function mainSelectedTab() {
-  const el = mainNav.chips[mainNav.selected];
-  if (!el) return null;
-  const url = el.getAttribute('data-tab-url');
-  const titleEl = el.querySelector('.chip-text');
-  return { url, title: titleEl ? titleEl.textContent : url };
-}
-
-// ---- Action helpers shared by both surfaces ----------------------
-async function actOnTab(tab, action) {
-  if (!tab || !tab.url) return;
-  if (action === 'focus') {
-    await focusTab(tab.url);
-  } else if (action === 'close') {
-    const allTabs = await chrome.tabs.query({});
-    const matches = allTabs.filter(t => t.url === tab.url).map(t => t.id);
-    if (matches.length) await chrome.tabs.remove(matches);
-    showToast('Tab closed');
-    setTimeout(() => renderStaticDashboard(), 50);
-  } else if (action === 'save') {
-    await saveTabForLater({ url: tab.url, title: tab.title || tab.url });
-    showToast('Saved for later');
-  }
-}
-
-// ---- Global keydown handler -------------------------------------
-function isTypingTarget(el) {
-  if (!el) return false;
-  const tag = (el.tagName || '').toLowerCase();
-  return tag === 'input' || tag === 'textarea' || el.isContentEditable;
-}
-
-document.addEventListener('keydown', async (e) => {
-  // ---- Palette mode ----
-  if (palette.isOpen) {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      closePalette();
-      return;
-    }
-    if (e.key === 'ArrowDown' || (e.key === 'j' && e.ctrlKey) || (e.key === 'n' && e.ctrlKey)) {
-      e.preventDefault();
-      setPaletteSelected(1);
-      return;
-    }
-    if (e.key === 'ArrowUp' || (e.key === 'k' && e.ctrlKey) || (e.key === 'p' && e.ctrlKey)) {
-      e.preventDefault();
-      setPaletteSelected(-1);
-      return;
-    }
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      const tab = paletteSelectedTab();
-      if (tab) {
-        closePalette();
-        await actOnTab(tab, 'focus');
-      }
-      return;
-    }
-    if (e.key === 'x' && !e.metaKey && !e.ctrlKey) {
-      e.preventDefault();
-      const tab = paletteSelectedTab();
-      if (tab) {
-        closePalette();
-        await actOnTab(tab, 'close');
-      }
-      return;
-    }
-    // let normal typing happen for any other key
-    return;
-  }
-
-  // ---- Cmd/Ctrl + K opens palette from anywhere ----
-  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-    e.preventDefault();
-    togglePalette();
-    return;
-  }
-
-  // ---- The rest of the shortcuts are only when nothing is being typed ----
-  if (isTypingTarget(e.target)) return;
-  if (e.metaKey || e.ctrlKey || e.altKey) return;
-
-  if (e.key === '/') {
-    e.preventDefault();
-    openPalette();
-    return;
-  }
-
-  if (e.key === 'Escape') {
-    if (mainNav.selected !== -1) {
-      e.preventDefault();
-      clearMainSelected();
-    }
-    return;
-  }
-
-  if (e.key === 'j' || e.key === 'ArrowDown') {
-    e.preventDefault();
-    if (mainNav.chips.length === 0) refreshMainChips();
-    if (mainNav.selected === -1) setMainSelected(0);
-    else setMainSelected(1);
-    return;
-  }
-  if (e.key === 'k' || e.key === 'ArrowUp') {
-    e.preventDefault();
-    if (mainNav.chips.length === 0) refreshMainChips();
-    if (mainNav.selected === -1) setMainSelected(0);
-    else setMainSelected(-1);
-    return;
-  }
-
-  if (e.key === 'Enter') {
-    if (mainNav.selected !== -1) {
-      e.preventDefault();
-      const tab = mainSelectedTab();
-      if (tab) await actOnTab(tab, 'focus');
-    }
-    return;
-  }
-
-  if (e.key === 'x') {
-    if (mainNav.selected !== -1) {
-      e.preventDefault();
-      const tab = mainSelectedTab();
-      if (tab) {
-        await actOnTab(tab, 'close');
-        clearMainSelected();
-      }
-    }
-    return;
-  }
-
-  if (e.key === 's') {
-    if (mainNav.selected !== -1) {
-      e.preventDefault();
-      const tab = mainSelectedTab();
-      if (tab) {
-        await actOnTab(tab, 'save');
-        clearMainSelected();
-      }
-    }
-    return;
-  }
-});
-
-// ---- Hook into existing render so chip list stays in sync ------
-// Wrap renderStaticDashboard (or the last render fn) so we rebuild
-// the chip list each time the DOM refreshes.
-(function patchRenderForNav() {
-  const orig = typeof renderStaticDashboard === 'function' ? renderStaticDashboard : null;
-  if (!orig) return;
-  // Replace with a wrapper
-  // (deferred: keep this simple; we just call refreshMainChips from the
-  // existing init flow instead. See init below.)
-})();
-
-// On load, wire the palette and rebuild chip list after each render
+// Wire up the palette at load
 initPalette();
-
-// After renderDashboard runs, keep the chip list fresh.
-// Use a tiny microtask poll on visibilitychange + tab events; the
-// existing renderDashboard already re-runs on chrome.tabs updates, so
-// we just need to refresh our chip cache each time the DOM changes.
-const _navObserver = new MutationObserver(() => {
-  // throttled: only refresh once per frame
-  if (_navObserver._scheduled) return;
-  _navObserver._scheduled = true;
-  requestAnimationFrame(() => {
-    _navObserver._scheduled = false;
-    refreshMainChips();
-  });
-});
-_navObserver.observe(document.getElementById('openTabsMissions') || document.body, {
-  childList: true,
-  subtree: true,
-});
 
 
 
@@ -2098,6 +1876,8 @@ function initSessionsUI() {
   const sessionsBtn = document.getElementById('sessionsBtn');
   const sessionsDrawer = document.getElementById('sessionsDrawer');
   const sessionsDrawerClose = document.getElementById('sessionsDrawerClose');
+  const openSearchBtn = document.getElementById('openSearchBtn');
+  const searchPaletteClose = document.getElementById('searchPaletteClose');
 
   if (!saveBtn || !dialog || !nameIn || !confirm) {
     // DOM not ready yet — try again next frame
@@ -2126,10 +1906,8 @@ function initSessionsUI() {
     confirm.disabled = false;
     closeDialog();
   });
-  nameIn.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter')  { e.preventDefault(); confirm.click(); }
-    if (e.key === 'Escape') { e.preventDefault(); cancel.click(); }
-  });
+  // (No keyboard handler on nameIn — click Confirm/Cancel, or click
+  // the overlay, to dismiss. v1.3 removed all keyboard shortcuts.)
 
   if (sessionsBtn && sessionsDrawer) {
     sessionsBtn.addEventListener('click', () => {
@@ -2143,6 +1921,10 @@ function initSessionsUI() {
       sessionsDrawer.hidden = true;
     });
   }
+
+  // Header Search button → open the palette (replaces the Cmd/Ctrl+K shortcut)
+  if (openSearchBtn) openSearchBtn.addEventListener('click', openPalette);
+  if (searchPaletteClose) searchPaletteClose.addEventListener('click', closePalette);
 
   // Initial load
   loadSessions().then(renderSessionsList);
@@ -2159,20 +1941,56 @@ function renderSessionsList() {
     const date = new Date(s.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
     return `
       <div class="session-row" data-session-id="${escapeHtml(s.id)}">
-        <div class="session-row-main">
-          <div class="session-name" data-action="rename-session" data-session-id="${escapeHtml(s.id)}" title="Click to rename">${escapeHtml(s.name)}</div>
-          <div class="session-meta">${s.urls.length} tab${s.urls.length !== 1 ? 's' : ''} · ${date}</div>
+        <div class="session-row-header" data-action="toggle-session" data-session-id="${escapeHtml(s.id)}">
+          <svg class="session-chevron" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+          <div class="session-row-main">
+            <div class="session-name-row">
+              <div class="session-name">${escapeHtml(s.name)}</div>
+              <button class="session-rename-btn" data-action="rename-session" data-session-id="${escapeHtml(s.id)}" title="Rename session" aria-label="Rename session">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>
+              </button>
+            </div>
+            <div class="session-meta">${s.urls.length} tab${s.urls.length !== 1 ? 's' : ''} · ${date}</div>
+          </div>
+          <div class="session-row-actions">
+            <button class="action-btn session-restore" data-action="restore-session" data-session-id="${escapeHtml(s.id)}" title="Open all ${s.urls.length} tabs in a new window">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5 12 21l8.25-7.5M12 21V3" /></svg>
+              Restore
+            </button>
+            <button class="action-btn session-delete" data-action="delete-session" data-session-id="${escapeHtml(s.id)}" title="Delete session" aria-label="Delete session">
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+            </button>
+          </div>
         </div>
-        <div class="session-row-actions">
-          <button class="action-btn session-restore" data-action="restore-session" data-session-id="${escapeHtml(s.id)}">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5 12 21l8.25-7.5M12 21V3" /></svg>
-            Restore
-          </button>
-          <button class="action-btn session-delete" data-action="delete-session" data-session-id="${escapeHtml(s.id)}" title="Delete session">
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
-          </button>
+        <div class="session-tabs" hidden>
+          ${renderSessionTabs(s)}
         </div>
       </div>`;
+  }).join('');
+}
+
+// Render the expanded tab list inside a session row.
+// Shows each saved URL with favicon, hostname, and truncated path.
+// Click on a tab row focuses that tab if it's still open, otherwise
+// just highlights the URL so the user can copy or inspect it.
+function renderSessionTabs(session) {
+  if (!session.urls || session.urls.length === 0) {
+    return '<div class="session-tabs-empty">No tabs in this session.</div>';
+  }
+  return session.urls.map(url => {
+    let hostname = '', display = url;
+    try {
+      const u = new URL(url);
+      hostname = u.hostname;
+      display  = u.hostname + (u.pathname === '/' ? '' : u.pathname);
+    } catch {}
+    return `<div class="session-tab-row" data-action="focus-session-tab" data-session-tab-url="${escapeHtml(url)}" title="${escapeHtml(url)}">
+      <img class="session-tab-favicon" src="${getFaviconUrl(url)}" alt="">
+      <div class="session-tab-body">
+        <div class="session-tab-host">${escapeHtml(hostname || url)}</div>
+        <div class="session-tab-path">${escapeHtml(display)}</div>
+      </div>
+    </div>`;
   }).join('');
 }
 
@@ -2321,6 +2139,28 @@ document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-action]');
   if (!el) return;
   const action = el.dataset.action;
+
+  // Toggle the expanded tab list on row header click
+  if (action === 'toggle-session') {
+    const row = el.closest('.session-row');
+    if (!row) return;
+    const tabs = row.querySelector('.session-tabs');
+    const chevron = row.querySelector('.session-chevron');
+    const willOpen = tabs.hidden;
+    tabs.hidden = !willOpen;
+    row.classList.toggle('session-row-expanded', willOpen);
+    if (chevron) chevron.classList.toggle('session-chevron-open', willOpen);
+    return;
+  }
+
+  // Click a tab inside an expanded session — jump to that tab if open
+  if (action === 'focus-session-tab') {
+    e.stopPropagation();
+    const url = el.dataset.sessionTabUrl;
+    if (!url) return;
+    await focusTab(url);
+    return;
+  }
 
   if (action === 'restore-session') {
     e.stopPropagation();

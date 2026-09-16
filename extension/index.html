@@ -27,6 +27,10 @@
       <div class="date" id="dateDisplay"></div>
     </div>
     <div class="header-right">
+      <button class="header-btn" id="openSearchBtn" title="Search open tabs" aria-label="Search open tabs">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" /></svg>
+        <span class="header-btn-label">Search</span>
+      </button>
       <button class="header-btn" id="sessionsBtn" title="Saved sessions" aria-label="Saved sessions">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
         <span class="header-btn-label">Sessions</span>
@@ -183,18 +187,15 @@
       <input type="text" class="palette-input" id="searchPaletteInput"
              placeholder="Search open tabs by title or URL…"
              autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="off">
-      <kbd class="palette-esc-hint">esc</kbd>
+      <button class="palette-close-hint" id="searchPaletteClose" aria-label="Close">✕</button>
     </div>
     <div class="palette-results" id="searchPaletteResults"></div>
     <div class="palette-empty" id="searchPaletteEmpty" hidden>
       <div class="palette-empty-title">No matches.</div>
-      <div class="palette-empty-sub">Try a different word, or press <kbd>esc</kbd> to close.</div>
+      <div class="palette-empty-sub">Try a different word, or click outside to close.</div>
     </div>
     <div class="palette-footer">
-      <span class="palette-shortcut"><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
-      <span class="palette-shortcut"><kbd>↵</kbd> jump to tab</span>
-      <span class="palette-shortcut"><kbd>x</kbd> close tab</span>
-      <span class="palette-shortcut"><kbd>esc</kbd> dismiss</span>
+      <span class="palette-shortcut">Click a result to jump to the tab</span>
     </div>
   </div>
 </div>
