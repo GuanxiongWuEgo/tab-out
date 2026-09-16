@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Tab Out",
-  "version": "1.6.0",
-  "description": "Keep tabs on your tabs. New tab page that groups your open tabs by domain, lets you close them with style, with tab sessions + drag-reorder + click search. Sessions show tab titles with inline rename (not URLs); sessions are drag-to-reorderable and so are the tabs inside each expanded session. No keyboard shortcuts, no server, no account, 100% local.",
+  "version": "1.7.0",
+  "description": "Keep tabs on your tabs. New tab page that groups your open tabs by domain, lets you close them with style, with tab sessions + drag-reorder + click search. Sessions show tab titles with inline rename (not URLs); sessions are drag-to-reorderable and so are the tabs inside each expanded session. Open-status indicator updates live when you close tabs elsewhere. No keyboard shortcuts, no server, no account, 100% local.",
   "permissions": ["tabs", "activeTab", "storage"],
   "host_permissions": ["https://icons.duckduckgo.com/*"],
   "chrome_url_overrides": { "newtab": "index.html" },

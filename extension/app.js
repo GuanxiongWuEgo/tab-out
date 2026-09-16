@@ -36,6 +36,7 @@ let sessionsCache          = []; // [{ id, name, createdAt, urls: [], titles: []
 let domainOrderCache       = []; // array of domain strings, in display order
 let sessionOrderCache      = []; // v1.5: array of session IDs in user-defined order
 let sessionTabOrderCache   = {}; // v1.6: { [sessionId]: string[] } URL order per session
+let expandedSessionIds     = new Set(); // v1.7: preserve which sessions are open across re-renders
 
 
 /* ----------------------------------------------------------------
@@ -2017,7 +2018,7 @@ function renderSessionsListWithOpenUrls(listEl, orderedSessions, openUrls) {
             </button>
           </div>
         </div>
-        <div class="session-tabs" hidden>
+        <div class="session-tabs"${expandedSessionIds.has(s.id) ? '' : ' hidden'}>
           ${renderSessionTabs(s, openUrls, sorted.urls, sorted.titles)}
         </div>
       </div>`;
@@ -2407,14 +2408,8 @@ function attachSessionTabDragHandlers() {
     await persistSessionTabOrder();
     targetRow.classList.remove('session-tab-row-drag-over');
     renderSessionsList();
-    // Re-expand the row so the user sees the new order without having
-    // to click the chevron again.
-    const newRow = document.querySelector(`.session-row[data-session-id="${CSS.escape(dragSid)}"]`);
-    if (newRow) {
-      const tabs = newRow.querySelector('.session-tabs');
-      const chev = newRow.querySelector('.session-chevron');
-      if (tabs && tabs.hidden) { tabs.hidden = false; chev && chev.classList.add('session-chevron-open'); newRow.classList.add('session-row-expanded'); }
-    }
+    // v1.7: expanded state is preserved automatically via
+    // expandedSessionIds, so no manual re-expand needed here.
     showToast('Tab order saved');
   });
 }
@@ -2489,6 +2484,48 @@ function attachDragHandlers() {
   });
 }
 
+// v1.7: live indicator refresh. Listens to browser tab/window
+// lifecycle events and updates the .session-tab-row-open green dot
+// (and tooltip hint) on existing rows in place — no full re-render,
+// which would collapse expanded state and reset scroll position.
+// Bails immediately if the sessions drawer is closed (waste of work).
+async function refreshSessionOpenIndicators() {
+  const drawer = document.getElementById('sessionsDrawer');
+  if (drawer && drawer.hidden) return;
+  const listEl = document.getElementById('sessionsList');
+  if (!listEl) return;
+  let openUrls = new Set();
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const t of tabs) if (t.url) openUrls.add(t.url);
+  } catch {
+    return;
+  }
+  const rows = listEl.querySelectorAll('.session-tab-row[data-session-tab-url]');
+  for (const row of rows) {
+    const url = row.dataset.sessionTabUrl;
+    const isOpen = openUrls.has(url);
+    row.classList.toggle('session-tab-row-open', isOpen);
+    const hint = isOpen ? 'Currently open — click to focus' : 'Click to focus (if open)';
+    row.title = `${url} | ${hint}`;
+  }
+}
+
+// v1.7: wire tab/window lifecycle events. Each handler runs the
+// refresh; chrome.tabs.onUpdated fires for title/favicon/status too,
+// so we filter to URL changes only to avoid thrashing.
+if (chrome.tabs && chrome.tabs.onRemoved) {
+  chrome.tabs.onRemoved.addListener(() => refreshSessionOpenIndicators());
+  chrome.tabs.onCreated.addListener(() => refreshSessionOpenIndicators());
+  chrome.tabs.onUpdated.addListener((_tabId, changeInfo) => {
+    if (changeInfo.url) refreshSessionOpenIndicators();
+  });
+  chrome.tabs.onReplaced.addListener(() => refreshSessionOpenIndicators());
+}
+if (chrome.windows && chrome.windows.onRemoved) {
+  chrome.windows.onRemoved.addListener(() => refreshSessionOpenIndicators());
+}
+
 // Initial attach
 attachDragHandlers();
 attachSessionDragHandlers();
@@ -2513,6 +2550,13 @@ document.addEventListener('click', async (e) => {
     tabs.hidden = !willOpen;
     row.classList.toggle('session-row-expanded', willOpen);
     if (chevron) chevron.classList.toggle('session-chevron-open', willOpen);
+    // v1.7: track expanded state so re-renders (reorder, rename,
+    // tab-open events) don't collapse the user's open sessions.
+    const sid = row.dataset.sessionId;
+    if (sid) {
+      if (willOpen) expandedSessionIds.add(sid);
+      else expandedSessionIds.delete(sid);
+    }
     return;
   }
 
