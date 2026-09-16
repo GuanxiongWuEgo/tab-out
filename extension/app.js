@@ -693,6 +693,37 @@ function smartTitle(title, url) {
 
 
 /* ----------------------------------------------------------------
+   XSS DEFENSE & FAVICON HELPERS
+
+   Tab titles come from `document.title` of any open page, which a
+   malicious site can set to anything including <script> or
+   <img onerror=...>. Any time user-controlled data (tab titles,
+   URLs) flows into innerHTML, it MUST go through escapeHtml() first.
+
+   Favicon: prefer chrome://favicon/<url> (Chrome's built-in) so we
+   never leak browsing history to Google's favicon service.
+   ---------------------------------------------------------------- */
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+// Tiny inline SVG used when chrome://favicon/ can't help (file://, etc.)
+const FALLBACK_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#d4b896"/><text x="8" y="11.5" font-family="system-ui, sans-serif" font-size="9" font-weight="600" text-anchor="middle" fill="#5a4a32">?</text></svg>`;
+const FALLBACK_FAVICON_DATAURI = 'data:image/svg+xml;utf8,' + encodeURIComponent(FALLBACK_FAVICON_SVG);
+
+function getFaviconUrl(tabUrl) {
+  if (!tabUrl || !/^https?:\/\//i.test(tabUrl)) return FALLBACK_FAVICON_DATAURI;
+  return `chrome://favicon/${tabUrl}`;
+}
+
+
+/* ----------------------------------------------------------------
    SVG ICON STRINGS
    ---------------------------------------------------------------- */
 const ICONS = {
@@ -763,14 +794,12 @@ function buildOverflowChips(hiddenTabs, urlCounts = {}) {
     const count    = urlCounts[tab.url] || 1;
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const safeUrl   = escapeHtml(tab.url || '');
+    const safeTitle = escapeHtml(label);
+    const faviconUrl = getFaviconUrl(tab.url);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
+      <img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">
+      <span class="chip-text">${safeTitle}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -844,14 +873,12 @@ function renderDomainCard(group) {
     const count    = urlCounts[tab.url];
     const dupeTag  = count > 1 ? ` <span class="chip-dupe-badge">(${count}x)</span>` : '';
     const chipClass = count > 1 ? ' chip-has-dupes' : '';
-    const safeUrl   = (tab.url || '').replace(/"/g, '&quot;');
-    const safeTitle = label.replace(/"/g, '&quot;');
-    let domain = '';
-    try { domain = new URL(tab.url).hostname; } catch {}
-    const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=16` : '';
+    const safeUrl   = escapeHtml(tab.url || '');
+    const safeTitle = escapeHtml(label);
+    const faviconUrl = getFaviconUrl(tab.url);
     return `<div class="page-chip clickable${chipClass}" data-action="focus-tab" data-tab-url="${safeUrl}" title="${safeTitle}">
-      ${faviconUrl ? `<img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">` : ''}
-      <span class="chip-text">${label}</span>${dupeTag}
+      <img class="chip-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'">
+      <span class="chip-text">${safeTitle}</span>${dupeTag}
       <div class="chip-actions">
         <button class="chip-action chip-save" data-action="defer-single-tab" data-tab-url="${safeUrl}" data-tab-title="${safeTitle}" title="Save for later">
           <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
@@ -966,22 +993,27 @@ async function renderDeferredColumn() {
 function renderDeferredItem(item) {
   let domain = '';
   try { domain = new URL(item.url).hostname.replace(/^www\./, ''); } catch {}
-  const faviconUrl = `https://www.google.com/s2/favicons?domain=${domain}&sz=16`;
+  const faviconUrl = getFaviconUrl(item.url);
   const ago = timeAgo(item.savedAt);
+  // Escape every user-controlled field before it touches innerHTML.
+  // item.title and item.url come from arbitrary web pages the user saved.
+  const safeTitle = escapeHtml(item.title || item.url || '');
+  const safeUrl   = escapeHtml(item.url || '');
+  const safeDomain = escapeHtml(domain);
 
   return `
-    <div class="deferred-item" data-deferred-id="${item.id}">
-      <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${item.id}">
+    <div class="deferred-item" data-deferred-id="${escapeHtml(item.id)}">
+      <input type="checkbox" class="deferred-checkbox" data-action="check-deferred" data-deferred-id="${escapeHtml(item.id)}">
       <div class="deferred-info">
-        <a href="${item.url}" target="_blank" rel="noopener" class="deferred-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${item.title || item.url}
+        <a href="${safeUrl}" target="_blank" rel="noopener" class="deferred-title" title="${safeTitle}">
+          <img src="${faviconUrl}" alt="" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px" onerror="this.style.display='none'">${safeTitle}
         </a>
         <div class="deferred-meta">
-          <span>${domain}</span>
-          <span>${ago}</span>
+          <span>${safeDomain}</span>
+          <span>${escapeHtml(ago)}</span>
         </div>
       </div>
-      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${item.id}" title="Dismiss">
+      <button class="deferred-dismiss" data-action="dismiss-deferred" data-deferred-id="${escapeHtml(item.id)}" title="Dismiss">
         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
       </button>
     </div>`;
@@ -994,12 +1026,14 @@ function renderDeferredItem(item) {
  */
 function renderArchiveItem(item) {
   const ago = item.completedAt ? timeAgo(item.completedAt) : timeAgo(item.savedAt);
+  const safeTitle = escapeHtml(item.title || item.url || '');
+  const safeUrl   = escapeHtml(item.url || '');
   return `
     <div class="archive-item">
-      <a href="${item.url}" target="_blank" rel="noopener" class="archive-item-title" title="${(item.title || '').replace(/"/g, '&quot;')}">
-        ${item.title || item.url}
+      <a href="${safeUrl}" target="_blank" rel="noopener" class="archive-item-title" title="${safeTitle}">
+        ${safeTitle}
       </a>
-      <span class="archive-item-date">${ago}</span>
+      <span class="archive-item-date">${escapeHtml(ago)}</span>
     </div>`;
 }
 
@@ -1480,3 +1514,388 @@ document.addEventListener('input', async (e) => {
    INITIALIZE
    ---------------------------------------------------------------- */
 renderDashboard();
+
+
+// ===================================================================
+// SEARCH PALETTE  +  KEYBOARD SHORTCUTS
+// ===================================================================
+// Added in fork: /  Cmd-K  j  k  Enter  x  s  Esc
+//
+// The palette is a Cmd/Ctrl+K command-bar that searches across every
+// open tab by title and URL. j/k on the main view move a selection
+// cursor through the visible chips; Enter jumps to the selected tab,
+// x closes it, s saves it for later. / opens the palette. Esc clears.
+// ===================================================================
+
+const palette = {
+  el:        null,        // overlay
+  input:     null,        // search input
+  results:   null,        // results container
+  empty:     null,        // empty-state element
+  isOpen:    false,
+  selected:  0,           // index into current results
+  resultsList: [],        // last filtered results
+};
+
+const mainNav = {
+  chips:     [],          // flat list of .page-chip elements (in DOM order)
+  selected: -1,           // index into chips, -1 = none
+};
+
+// ---- DOM refs (filled at boot) ----------------------------------
+function initPalette() {
+  palette.el      = document.getElementById('searchPalette');
+  palette.input   = document.getElementById('searchPaletteInput');
+  palette.results = document.getElementById('searchPaletteResults');
+  palette.empty   = document.getElementById('searchPaletteEmpty');
+  if (!palette.el) return;
+
+  // Input: live filter as user types
+  palette.input.addEventListener('input', () => {
+    renderPaletteResults(palette.input.value);
+  });
+
+  // Click outside the palette box closes it
+  palette.el.addEventListener('click', (e) => {
+    if (e.target === palette.el) closePalette();
+  });
+
+  // Click a result -> jump to that tab
+  palette.results.addEventListener('click', (e) => {
+    const row = e.target.closest('.palette-result');
+    if (!row) return;
+    const idx = Number(row.dataset.idx);
+    if (!Number.isNaN(idx)) {
+      const r = palette.resultsList[idx];
+      if (r) {
+        closePalette();
+        focusTab(r.url);
+      }
+    }
+  });
+}
+
+// ---- Fuzzy filter: simple substring + word-prefix scoring -------
+function scoreMatch(haystack, needle) {
+  if (!needle) return 1;
+  const h = haystack.toLowerCase();
+  const n = needle.toLowerCase().trim();
+  if (!n) return 1;
+  if (h === n) return 1000;
+  if (h.startsWith(n)) return 500;
+  if (h.includes(' ' + n)) return 200;
+  if (h.includes(n)) return 100;
+  // word-prefix match: every space-separated word in needle starts in haystack
+  const words = n.split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    const allHit = words.every(w => h.includes(w));
+    if (allHit) return 150;
+  }
+  return 0;
+}
+
+function filterOpenTabs(query) {
+  const realTabs = getRealTabs();
+  if (!query || !query.trim()) {
+    // Empty query: show all, but cap at 50
+    return realTabs.slice(0, 50).map(t => ({ tab: t, score: 1, titleHL: escapeHtml(t.title || t.url || ''), urlHL: escapeHtml(t.url || '') }));
+  }
+  const scored = [];
+  for (const t of realTabs) {
+    const titleScore = scoreMatch(t.title || '', query);
+    const urlScore   = scoreMatch(t.url || '', query);
+    const score = Math.max(titleScore, urlScore);
+    if (score > 0) {
+      scored.push({
+        tab: t,
+        score,
+        titleHL: highlightMatch(t.title || t.url || '', query),
+        urlHL:   highlightMatch(t.url || '', query),
+      });
+    }
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, 50);
+}
+
+// Wrap matched substrings in <mark>. Caller must still escapeHtml
+// the original string before passing in (we mark on top of the
+// already-escaped text using case-insensitive match on lowercase).
+function highlightMatch(text, query) {
+  const safe = escapeHtml(text);
+  const q = (query || '').trim();
+  if (!q) return safe;
+  const safeQ = escapeHtml(q);
+  // case-insensitive find-and-replace on the escaped string
+  const re = new RegExp(safeQ.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&'), 'ig');
+  return safe.replace(re, m => `<mark>${m}</mark>`);
+}
+
+// ---- Palette: open / close / render -----------------------------
+function openPalette() {
+  if (!palette.el) initPalette();
+  if (!palette.el) return;
+  palette.isOpen = true;
+  palette.el.hidden = false;
+  palette.input.value = '';
+  renderPaletteResults('');
+  // focus next tick so the hidden=false takes effect
+  setTimeout(() => palette.input.focus(), 0);
+}
+
+function closePalette() {
+  if (!palette.el) return;
+  palette.isOpen = false;
+  palette.el.hidden = true;
+  palette.input.value = '';
+  palette.resultsList = [];
+}
+
+function togglePalette() {
+  palette.isOpen ? closePalette() : openPalette();
+}
+
+function renderPaletteResults(query) {
+  palette.resultsList = filterOpenTabs(query);
+  palette.selected = 0;
+
+  if (palette.resultsList.length === 0) {
+    palette.results.innerHTML = '';
+    palette.empty.hidden = false;
+    return;
+  }
+  palette.empty.hidden = true;
+
+  palette.results.innerHTML = palette.resultsList.map((r, i) => {
+    const tab   = r.tab;
+    const fav   = getFaviconUrl(tab.url);
+    const title = r.titleHL || escapeHtml(tab.title || tab.url || '');
+    const url   = r.urlHL   || escapeHtml(tab.url || '');
+    return `<div class="palette-result${i === 0 ? ' palette-result-selected' : ''}" data-idx="${i}">
+      <img class="palette-result-favicon" src="${fav}" alt="" onerror="this.style.display='none'">
+      <div class="palette-result-body">
+        <div class="palette-result-title">${title}</div>
+        <div class="palette-result-url">${url}</div>
+      </div>
+      <span class="palette-result-action">jump</span>
+    </div>`;
+  }).join('');
+}
+
+function setPaletteSelected(delta) {
+  if (palette.resultsList.length === 0) return;
+  const n = palette.resultsList.length;
+  palette.selected = (palette.selected + delta + n) % n;
+  const rows = palette.results.querySelectorAll('.palette-result');
+  rows.forEach((r, i) => r.classList.toggle('palette-result-selected', i === palette.selected));
+  rows[palette.selected]?.scrollIntoView({ block: 'nearest' });
+}
+
+function paletteSelectedTab() {
+  return palette.resultsList[palette.selected]?.tab || null;
+}
+
+// ---- Main-view selection cursor (j/k on the dashboard) ----------
+function refreshMainChips() {
+  // Flatten all visible chips across all domain cards, in DOM order
+  mainNav.chips = Array.from(document.querySelectorAll('#openTabsMissions .page-chip'));
+  if (mainNav.selected >= mainNav.chips.length) mainNav.selected = mainNav.chips.length - 1;
+  if (mainNav.chips.length > 0 && mainNav.selected === -1) {
+    // don't auto-select on first render; let the user press j to start
+    mainNav.selected = -1;
+  }
+}
+
+function setMainSelected(delta) {
+  if (mainNav.chips.length === 0) return;
+  let next = mainNav.selected + delta;
+  if (next < 0) next = 0;
+  if (next >= mainNav.chips.length) next = mainNav.chips.length - 1;
+  mainNav.selected = next;
+  mainNav.chips.forEach((el, i) => el.classList.toggle('chip-selected', i === mainNav.selected));
+  mainNav.chips[mainNav.selected]?.scrollIntoView({ block: 'nearest' });
+}
+
+function clearMainSelected() {
+  mainNav.chips.forEach(el => el.classList.remove('chip-selected'));
+  mainNav.selected = -1;
+}
+
+function mainSelectedTab() {
+  const el = mainNav.chips[mainNav.selected];
+  if (!el) return null;
+  const url = el.getAttribute('data-tab-url');
+  const titleEl = el.querySelector('.chip-text');
+  return { url, title: titleEl ? titleEl.textContent : url };
+}
+
+// ---- Action helpers shared by both surfaces ----------------------
+async function actOnTab(tab, action) {
+  if (!tab || !tab.url) return;
+  if (action === 'focus') {
+    await focusTab(tab.url);
+  } else if (action === 'close') {
+    const allTabs = await chrome.tabs.query({});
+    const matches = allTabs.filter(t => t.url === tab.url).map(t => t.id);
+    if (matches.length) await chrome.tabs.remove(matches);
+    showToast('Tab closed');
+    setTimeout(() => renderStaticDashboard(), 50);
+  } else if (action === 'save') {
+    await saveTabForLater({ url: tab.url, title: tab.title || tab.url });
+    showToast('Saved for later');
+  }
+}
+
+// ---- Global keydown handler -------------------------------------
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = (el.tagName || '').toLowerCase();
+  return tag === 'input' || tag === 'textarea' || el.isContentEditable;
+}
+
+document.addEventListener('keydown', async (e) => {
+  // ---- Palette mode ----
+  if (palette.isOpen) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closePalette();
+      return;
+    }
+    if (e.key === 'ArrowDown' || (e.key === 'j' && e.ctrlKey) || (e.key === 'n' && e.ctrlKey)) {
+      e.preventDefault();
+      setPaletteSelected(1);
+      return;
+    }
+    if (e.key === 'ArrowUp' || (e.key === 'k' && e.ctrlKey) || (e.key === 'p' && e.ctrlKey)) {
+      e.preventDefault();
+      setPaletteSelected(-1);
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const tab = paletteSelectedTab();
+      if (tab) {
+        closePalette();
+        await actOnTab(tab, 'focus');
+      }
+      return;
+    }
+    if (e.key === 'x' && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault();
+      const tab = paletteSelectedTab();
+      if (tab) {
+        closePalette();
+        await actOnTab(tab, 'close');
+      }
+      return;
+    }
+    // let normal typing happen for any other key
+    return;
+  }
+
+  // ---- Cmd/Ctrl + K opens palette from anywhere ----
+  if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+    e.preventDefault();
+    togglePalette();
+    return;
+  }
+
+  // ---- The rest of the shortcuts are only when nothing is being typed ----
+  if (isTypingTarget(e.target)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+  if (e.key === '/') {
+    e.preventDefault();
+    openPalette();
+    return;
+  }
+
+  if (e.key === 'Escape') {
+    if (mainNav.selected !== -1) {
+      e.preventDefault();
+      clearMainSelected();
+    }
+    return;
+  }
+
+  if (e.key === 'j' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (mainNav.chips.length === 0) refreshMainChips();
+    if (mainNav.selected === -1) setMainSelected(0);
+    else setMainSelected(1);
+    return;
+  }
+  if (e.key === 'k' || e.key === 'ArrowUp') {
+    e.preventDefault();
+    if (mainNav.chips.length === 0) refreshMainChips();
+    if (mainNav.selected === -1) setMainSelected(0);
+    else setMainSelected(-1);
+    return;
+  }
+
+  if (e.key === 'Enter') {
+    if (mainNav.selected !== -1) {
+      e.preventDefault();
+      const tab = mainSelectedTab();
+      if (tab) await actOnTab(tab, 'focus');
+    }
+    return;
+  }
+
+  if (e.key === 'x') {
+    if (mainNav.selected !== -1) {
+      e.preventDefault();
+      const tab = mainSelectedTab();
+      if (tab) {
+        await actOnTab(tab, 'close');
+        clearMainSelected();
+      }
+    }
+    return;
+  }
+
+  if (e.key === 's') {
+    if (mainNav.selected !== -1) {
+      e.preventDefault();
+      const tab = mainSelectedTab();
+      if (tab) {
+        await actOnTab(tab, 'save');
+        clearMainSelected();
+      }
+    }
+    return;
+  }
+});
+
+// ---- Hook into existing render so chip list stays in sync ------
+// Wrap renderStaticDashboard (or the last render fn) so we rebuild
+// the chip list each time the DOM refreshes.
+(function patchRenderForNav() {
+  const orig = typeof renderStaticDashboard === 'function' ? renderStaticDashboard : null;
+  if (!orig) return;
+  // Replace with a wrapper
+  // (deferred: keep this simple; we just call refreshMainChips from the
+  // existing init flow instead. See init below.)
+})();
+
+// On load, wire the palette and rebuild chip list after each render
+initPalette();
+
+// After renderDashboard runs, keep the chip list fresh.
+// Use a tiny microtask poll on visibilitychange + tab events; the
+// existing renderDashboard already re-runs on chrome.tabs updates, so
+// we just need to refresh our chip cache each time the DOM changes.
+const _navObserver = new MutationObserver(() => {
+  // throttled: only refresh once per frame
+  if (_navObserver._scheduled) return;
+  _navObserver._scheduled = true;
+  requestAnimationFrame(() => {
+    _navObserver._scheduled = false;
+    refreshMainChips();
+  });
+});
+_navObserver.observe(document.getElementById('openTabsMissions') || document.body, {
+  childList: true,
+  subtree: true,
+});
+

@@ -125,6 +125,35 @@
   <span id="toastText"></span>
 </div>
 
+<!-- ================================================================
+     SEARCH PALETTE — Cmd/Ctrl+K global search across open tabs
+     Hidden by default. Shown when palette is opened.
+     ================================================================ -->
+<div class="palette-overlay" id="searchPalette" hidden>
+  <div class="palette" role="dialog" aria-label="Search open tabs">
+    <div class="palette-input-wrap">
+      <svg class="palette-search-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 5.196a7.5 7.5 0 0 0 10.607 10.607Z" />
+      </svg>
+      <input type="text" class="palette-input" id="searchPaletteInput"
+             placeholder="Search open tabs by title or URL…"
+             autocomplete="off" spellcheck="false" autocorrect="off" autocapitalize="off">
+      <kbd class="palette-esc-hint">esc</kbd>
+    </div>
+    <div class="palette-results" id="searchPaletteResults"></div>
+    <div class="palette-empty" id="searchPaletteEmpty" hidden>
+      <div class="palette-empty-title">No matches.</div>
+      <div class="palette-empty-sub">Try a different word, or press <kbd>esc</kbd> to close.</div>
+    </div>
+    <div class="palette-footer">
+      <span class="palette-shortcut"><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+      <span class="palette-shortcut"><kbd>↵</kbd> jump to tab</span>
+      <span class="palette-shortcut"><kbd>x</kbd> close tab</span>
+      <span class="palette-shortcut"><kbd>esc</kbd> dismiss</span>
+    </div>
+  </div>
+</div>
+
 <!-- Personal config (gitignored) — defines LOCAL_LANDING_PAGE_PATTERNS etc. -->
 <!-- If the file doesn't exist, that's fine — app.js uses sensible defaults. -->
 <script src="config.local.js" onerror="/* no personal config, that's fine */"></script>
