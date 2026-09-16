@@ -1386,3 +1386,347 @@ footer { animation: fadeUp 0.5s ease 0.65s both; }
   border-color: var(--accent-amber, #c8713a) !important;
   box-shadow: 0 0 0 1px var(--accent-amber, #c8713a);
 }
+
+
+/* ================================================================
+   HEADER TOOLBAR  (Save / Sessions buttons)
+   ================================================================ */
+
+header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(90, 75, 50, 0.18);
+  border-radius: 8px;
+  font: 500 12px/1 'DM Sans', system-ui, sans-serif;
+  color: var(--ink, #2d261e);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, transform 0.06s;
+}
+.header-btn:hover {
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(90, 75, 50, 0.32);
+}
+.header-btn:active { transform: scale(0.97); }
+.header-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--accent-amber, #c8713a);
+}
+.header-btn-primary {
+  background: var(--accent-amber, #c8713a);
+  border-color: var(--accent-amber, #c8713a);
+  color: #fff;
+}
+.header-btn-primary svg { color: #fff; }
+.header-btn-primary:hover {
+  background: #b56430;
+  border-color: #b56430;
+}
+
+
+/* ================================================================
+   SESSIONS DRAWER
+   ================================================================ */
+
+.sessions-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 380px;
+  max-width: 100vw;
+  background: var(--paper, #faf6ef);
+  border-left: 1px solid rgba(90, 75, 50, 0.18);
+  box-shadow: -8px 0 24px rgba(45, 38, 30, 0.18);
+  z-index: 9000;
+  display: flex;
+  flex-direction: column;
+  animation: drawerSlideIn 0.18s ease-out;
+  outline: 0;
+}
+.sessions-drawer[hidden] { display: none; }
+
+@keyframes drawerSlideIn {
+  from { transform: translateX(20px); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+.sessions-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 12px;
+  border-bottom: 1px solid rgba(90, 75, 50, 0.12);
+}
+.sessions-drawer-header h3 {
+  font: 600 14px/1.4 'DM Sans', system-ui, sans-serif;
+  color: var(--ink, #2d261e);
+  margin: 0;
+  letter-spacing: 0.3px;
+}
+.sessions-drawer-close {
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 0;
+  color: var(--muted, #8a7e6e);
+  cursor: pointer;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sessions-drawer-close:hover { background: rgba(90, 75, 50, 0.08); color: var(--ink, #2d261e); }
+.sessions-drawer-close svg { width: 16px; height: 16px; }
+
+.sessions-drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 20px 16px;
+  outline: 0;
+}
+
+.sessions-empty {
+  font: 400 13px/1.5 'DM Sans', system-ui, sans-serif;
+  color: var(--muted, #8a7e6e);
+  padding: 24px 0;
+  text-align: center;
+}
+.sessions-empty strong {
+  color: var(--ink, #2d261e);
+  font-weight: 600;
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid rgba(90, 75, 50, 0.10);
+  border-radius: 8px;
+  transition: background 0.1s;
+}
+.session-row:hover {
+  background: rgba(255, 255, 255, 0.85);
+}
+
+.session-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.session-name {
+  font: 500 13px/1.3 'DM Sans', system-ui, sans-serif;
+  color: var(--ink, #2d261e);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+.session-name:hover { color: var(--accent-amber, #c8713a); }
+.session-meta {
+  font: 400 11px/1.3 'DM Sans', system-ui, sans-serif;
+  color: var(--muted, #8a7e6e);
+  margin-top: 2px;
+}
+
+.session-row-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.session-row-actions .action-btn {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+.session-restore svg {
+  width: 12px;
+  height: 12px;
+}
+.session-delete {
+  width: 28px;
+  height: 28px;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.session-delete svg { width: 14px; height: 14px; }
+
+.sessions-drawer-footer {
+  padding: 12px 20px;
+  border-top: 1px solid rgba(90, 75, 50, 0.12);
+  font: 400 11px/1.5 'DM Sans', system-ui, sans-serif;
+  color: var(--muted, #8a7e6e);
+}
+.sessions-drawer-footer code {
+  font: 500 10px/1 ui-monospace, monospace;
+  background: rgba(90, 75, 50, 0.08);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+
+/* ================================================================
+   SESSION NAME DIALOG
+   ================================================================ */
+
+.session-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  background: rgba(45, 38, 30, 0.32);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: paletteFadeIn 0.12s ease-out;
+}
+.session-dialog-overlay[hidden] { display: none; }
+
+.session-dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 9501;
+  width: 420px;
+  max-width: calc(100vw - 32px);
+  background: var(--paper, #faf6ef);
+  border: 1px solid rgba(90, 75, 50, 0.18);
+  border-radius: 12px;
+  box-shadow:
+    0 20px 60px rgba(45, 38, 30, 0.30),
+    0 4px 12px rgba(45, 38, 30, 0.10);
+  padding: 20px 22px 18px;
+  animation: paletteSlideIn 0.14s ease-out;
+}
+.session-dialog[hidden] { display: none; }
+
+.session-dialog-title {
+  font: 600 16px/1.3 'Newsreader', 'DM Sans', serif;
+  color: var(--ink, #2d261e);
+  margin-bottom: 4px;
+}
+.session-dialog-sub {
+  font: 400 12px/1.4 'DM Sans', system-ui, sans-serif;
+  color: var(--muted, #8a7e6e);
+  margin-bottom: 14px;
+}
+.session-dialog-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid rgba(90, 75, 50, 0.25);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  font: 400 14px/1.3 'DM Sans', system-ui, sans-serif;
+  color: var(--ink, #2d261e);
+  outline: 0;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+}
+.session-dialog-input:focus {
+  border-color: var(--accent-amber, #c8713a);
+  background: rgba(255, 255, 255, 0.95);
+}
+.session-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.session-dialog-confirm {
+  background: var(--accent-amber, #c8713a);
+  border-color: var(--accent-amber, #c8713a);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.session-dialog-confirm svg { width: 14px; height: 14px; }
+.session-dialog-confirm:hover { background: #b56430; }
+.session-dialog-confirm:disabled { opacity: 0.6; cursor: wait; }
+
+
+/* ================================================================
+   DRAG-TO-REORDER ON DOMAIN CARDS
+   ================================================================ */
+
+.mission-card[data-domain-key] {
+  position: relative;
+  cursor: default;
+}
+
+.mission-card[data-domain-key][draggable="true"] {
+  cursor: grab;
+}
+
+.mission-card.dragging {
+  opacity: 0.45;
+  transform: scale(0.99);
+}
+
+.mission-card.drag-over {
+  outline: 2px dashed var(--accent-amber, #c8713a);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+
+.drag-handle {
+  position: absolute;
+  top: 12px;
+  right: 14px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--muted, #8a7e6e);
+  cursor: grab;
+  border-radius: 4px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.1s, color 0.1s;
+}
+.mission-card[data-domain-key]:hover .drag-handle {
+  opacity: 0.6;
+}
+.drag-handle:hover {
+  background: rgba(90, 75, 50, 0.10);
+  color: var(--ink, #2d261e);
+  opacity: 1 !important;
+}
+.drag-handle:active {
+  cursor: grabbing;
+}
+.drag-handle svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Always show the handle on touch devices (no hover) */
+@media (hover: none) {
+  .drag-handle {
+    opacity: 0.6;
+    display: inline-flex;
+  }
+}

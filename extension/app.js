@@ -905,8 +905,11 @@ function renderDomainCard(group) {
   }
 
   return `
-    <div class="mission-card domain-card ${hasDupes ? 'has-amber-bar' : 'has-neutral-bar'}" data-domain-id="${stableId}">
+    <div class="mission-card domain-card ${hasDupes ? 'has-amber-bar' : 'has-neutral-bar'}" data-domain-id="${stableId}" data-domain-key="${escapeHtml(group.domain)}" draggable="true">
       <div class="status-bar"></div>
+      <button class="drag-handle" title="Drag to reorder" aria-label="Drag to reorder">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
+      </button>
       <div class="mission-content">
         <div class="mission-top">
           <span class="mission-name">${isLanding ? 'Homepages' : (group.label || friendlyDomain(group.domain))}</span>
@@ -1175,6 +1178,16 @@ async function renderStaticDashboard() {
 
     return b.tabs.length - a.tabs.length;
   });
+
+  // Apply user-defined drag-reorder on top of the natural sort.
+  // Landing-pages group always stays first (it's the priority special case).
+  if (domainGroups.length > 0 && domainGroups[0].domain === '__landing-pages__') {
+    const landing = [domainGroups[0]];
+    const rest    = sortDomainsByUserOrder(domainGroups.slice(1));
+    domainGroups = landing.concat(rest);
+  } else {
+    domainGroups = sortDomainsByUserOrder(domainGroups);
+  }
 
   // --- Render domain cards ---
   const openTabsSection      = document.getElementById('openTabsSection');
@@ -1514,6 +1527,8 @@ document.addEventListener('input', async (e) => {
    INITIALIZE
    ---------------------------------------------------------------- */
 renderDashboard();
+initSessionsUI();
+loadAndApplyDomainOrder();
 
 
 // ===================================================================
@@ -1899,3 +1914,377 @@ _navObserver.observe(document.getElementById('openTabsMissions') || document.bod
   subtree: true,
 });
 
+
+
+// ===================================================================
+// TAB SESSIONS  +  DOMAIN CARD DRAG-REORDER
+// ===================================================================
+// Two new features added in fork v1.2:
+//
+// 1) Tab Sessions — save the current set of open tabs by URL as a named
+//    group, then restore it later (one click, opens all tabs in a new
+//    window). Stored in chrome.storage.local under 'sessions'. Each
+//    session only stores URLs — titles are looked up fresh when the
+//    session is restored, so saved sessions stay small and don't go
+//    stale.
+//
+// 2) Domain-card drag-reorder — grab any .mission-card on the dashboard
+//    and drop it in a new position. Order is persisted to
+//    chrome.storage.local under 'domainOrder'. New domains that show
+//    up for the first time append at the bottom; the user-defined order
+//    is preserved across renders.
+// ===================================================================
+
+// ---------- storage keys (kept in one place) ----------------------
+const STORAGE_SESSIONS    = 'sessions';
+const STORAGE_DOMAIN_ORDER = 'domainOrder';
+
+// ---------- Sessions: in-memory cache + load/save -----------------
+let sessionsCache = []; // [{ id, name, createdAt, urls: [] }]
+
+async function loadSessions() {
+  try {
+    const { [STORAGE_SESSIONS]: stored = [] } = await chrome.storage.local.get(STORAGE_SESSIONS);
+    sessionsCache = Array.isArray(stored) ? stored : [];
+  } catch (err) {
+    console.warn('[tab-out] loadSessions failed:', err);
+    sessionsCache = [];
+  }
+  return sessionsCache;
+}
+
+async function persistSessions() {
+  try {
+    await chrome.storage.local.set({ [STORAGE_SESSIONS]: sessionsCache });
+  } catch (err) {
+    console.error('[tab-out] persistSessions failed:', err);
+    showToast('Failed to save session');
+  }
+}
+
+function shortId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+// ---------- Session CRUD ------------------------------------------
+async function createSessionFromOpenTabs(name) {
+  const realTabs = getRealTabs();
+  if (realTabs.length === 0) {
+    showToast('No tabs to save');
+    return null;
+  }
+  const cleanName = (name || '').trim() || `Session ${new Date().toLocaleDateString()}`;
+  const session = {
+    id:        shortId(),
+    name:      cleanName,
+    createdAt: Date.now(),
+    urls:      Array.from(new Set(realTabs.map(t => t.url).filter(Boolean))),
+  };
+  sessionsCache.unshift(session); // newest first
+  await persistSessions();
+  renderSessionsList();
+  showToast(`Saved session "${cleanName}" · ${session.urls.length} tabs`);
+  return session;
+}
+
+async function deleteSession(id) {
+  sessionsCache = sessionsCache.filter(s => s.id !== id);
+  await persistSessions();
+  renderSessionsList();
+}
+
+async function renameSession(id, newName) {
+  const s = sessionsCache.find(x => x.id === id);
+  if (!s) return;
+  s.name = (newName || '').trim() || s.name;
+  await persistSessions();
+  renderSessionsList();
+}
+
+async function restoreSession(id) {
+  const s = sessionsCache.find(x => x.id === id);
+  if (!s) return;
+  if (!s.urls || s.urls.length === 0) {
+    showToast('Session is empty');
+    return;
+  }
+  // Open all URLs in a new window so the session is restored
+  // wholesale, just like Tab Manager Plus / Workona.
+  try {
+    const win = await chrome.windows.create({ focused: true });
+    // Create one tab per URL, in saved order. Use a small stagger so
+    // the browser doesn't drop any on a slow machine.
+    for (let i = 0; i < s.urls.length; i++) {
+      chrome.tabs.create({ windowId: win.id, url: s.urls[i], active: i === 0 });
+    }
+    showToast(`Restored "${s.name}" · ${s.urls.length} tabs`);
+  } catch (err) {
+    console.error('[tab-out] restoreSession failed:', err);
+    showToast('Failed to restore session');
+  }
+}
+
+// ---------- Sessions UI -------------------------------------------
+function initSessionsUI() {
+  // Wire the toolbar Save button + dialog
+  const saveBtn  = document.getElementById('saveSessionBtn');
+  const dialog   = document.getElementById('sessionDialog');
+  const nameIn   = document.getElementById('sessionNameInput');
+  const confirm  = document.getElementById('sessionDialogConfirm');
+  const cancel   = document.getElementById('sessionDialogCancel');
+  const overlay  = document.getElementById('sessionDialogOverlay');
+  const sessionsBtn = document.getElementById('sessionsBtn');
+  const sessionsDrawer = document.getElementById('sessionsDrawer');
+  const sessionsDrawerClose = document.getElementById('sessionsDrawerClose');
+
+  if (!saveBtn || !dialog || !nameIn || !confirm) {
+    // DOM not ready yet — try again next frame
+    setTimeout(initSessionsUI, 100);
+    return;
+  }
+
+  saveBtn.addEventListener('click', () => {
+    nameIn.value = '';
+    dialog.hidden = false;
+    overlay.hidden = false;
+    setTimeout(() => nameIn.focus(), 0);
+  });
+
+  const closeDialog = () => {
+    dialog.hidden = true;
+    overlay.hidden = true;
+  };
+
+  cancel.addEventListener('click', closeDialog);
+  overlay.addEventListener('click', closeDialog);
+  confirm.addEventListener('click', async () => {
+    const name = nameIn.value.trim();
+    confirm.disabled = true;
+    await createSessionFromOpenTabs(name);
+    confirm.disabled = false;
+    closeDialog();
+  });
+  nameIn.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter')  { e.preventDefault(); confirm.click(); }
+    if (e.key === 'Escape') { e.preventDefault(); cancel.click(); }
+  });
+
+  if (sessionsBtn && sessionsDrawer) {
+    sessionsBtn.addEventListener('click', () => {
+      sessionsDrawer.hidden = !sessionsDrawer.hidden;
+      if (!sessionsDrawer.hidden) {
+        loadSessions().then(renderSessionsList);
+        sessionsDrawer.querySelector('.sessions-drawer-body')?.focus();
+      }
+    });
+    sessionsDrawerClose?.addEventListener('click', () => {
+      sessionsDrawer.hidden = true;
+    });
+  }
+
+  // Initial load
+  loadSessions().then(renderSessionsList);
+}
+
+function renderSessionsList() {
+  const listEl = document.getElementById('sessionsList');
+  if (!listEl) return;
+  if (!sessionsCache.length) {
+    listEl.innerHTML = '<div class="sessions-empty">No saved sessions yet. Hit <strong>Save current as session</strong> to capture what you have open.</div>';
+    return;
+  }
+  listEl.innerHTML = sessionsCache.map(s => {
+    const date = new Date(s.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+    return `
+      <div class="session-row" data-session-id="${escapeHtml(s.id)}">
+        <div class="session-row-main">
+          <div class="session-name" data-action="rename-session" data-session-id="${escapeHtml(s.id)}" title="Click to rename">${escapeHtml(s.name)}</div>
+          <div class="session-meta">${s.urls.length} tab${s.urls.length !== 1 ? 's' : ''} · ${date}</div>
+        </div>
+        <div class="session-row-actions">
+          <button class="action-btn session-restore" data-action="restore-session" data-session-id="${escapeHtml(s.id)}">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5 12 21l8.25-7.5M12 21V3" /></svg>
+            Restore
+          </button>
+          <button class="action-btn session-delete" data-action="delete-session" data-session-id="${escapeHtml(s.id)}" title="Delete session">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>
+          </button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ---------- Domain-order persistence -------------------------------
+let domainOrderCache = []; // array of domain strings, in display order
+
+async function loadDomainOrder() {
+  try {
+    const { [STORAGE_DOMAIN_ORDER]: arr = [] } = await chrome.storage.local.get(STORAGE_DOMAIN_ORDER);
+    domainOrderCache = Array.isArray(arr) ? arr : [];
+  } catch {
+    domainOrderCache = [];
+  }
+  return domainOrderCache;
+}
+
+async function persistDomainOrder() {
+  try {
+    await chrome.storage.local.set({ [STORAGE_DOMAIN_ORDER]: domainOrderCache });
+  } catch (err) {
+    console.warn('[tab-out] persistDomainOrder failed:', err);
+  }
+}
+
+async function loadAndApplyDomainOrder() {
+  await loadDomainOrder();
+  // Re-render once if we have a stored order; the next renderStaticDashboard
+  // call will pick it up automatically through sortDomainsByUserOrder().
+  renderDashboard();
+}
+
+// Stable sort of an array of group objects by domainOrderCache.
+// Domains not in the cache go to the bottom, preserving their current
+// relative order. The cache is updated to include any new domains.
+function sortDomainsByUserOrder(groups) {
+  if (!domainOrderCache || domainOrderCache.length === 0) return groups;
+
+  const orderIndex = new Map();
+  domainOrderCache.forEach((d, i) => orderIndex.set(d, i));
+
+  const known = [];
+  const unknown = [];
+  for (const g of groups) {
+    if (orderIndex.has(g.domain)) known.push(g);
+    else unknown.push(g);
+  }
+  known.sort((a, b) => orderIndex.get(a.domain) - orderIndex.get(b.domain));
+
+  // Merge: known (in user order), then unknown (in original order)
+  const merged = known.concat(unknown);
+
+  // Update cache to include any new domains we just saw, so they
+  // appear in their natural (current) position next render.
+  // We DON'T reorder existing entries — that would undo what the
+  // user just dragged.
+  const newDomains = unknown.map(g => g.domain);
+  if (newDomains.length) {
+    // Only append domains that aren't already cached
+    for (const d of newDomains) {
+      if (!domainOrderCache.includes(d)) domainOrderCache.push(d);
+    }
+    // Don't await — fire and forget, non-blocking
+    persistDomainOrder();
+  }
+
+  return merged;
+}
+
+// ---------- Drag-and-drop on domain cards --------------------------
+let draggedDomain = null;
+
+function attachDragHandlers() {
+  const container = document.getElementById('openTabsMissions');
+  if (!container) return;
+
+  // Delegate dragstart from any card
+  container.addEventListener('dragstart', (e) => {
+    const card = e.target.closest('.mission-card[data-domain-key]');
+    if (!card) return;
+    draggedDomain = card.dataset.domainKey;
+    card.classList.add('dragging');
+    // Required for Firefox; harmless elsewhere
+    try { e.dataTransfer.setData('text/plain', draggedDomain); } catch {}
+    e.dataTransfer.effectAllowed = 'move';
+  });
+
+  container.addEventListener('dragend', () => {
+    if (draggedDomain) {
+      const el = container.querySelector(`.mission-card[data-domain-key="${CSS.escape(draggedDomain)}"]`);
+      if (el) el.classList.remove('dragging');
+    }
+    container.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    draggedDomain = null;
+  });
+
+  container.addEventListener('dragover', (e) => {
+    const card = e.target.closest('.mission-card[data-domain-key]');
+    if (!card) return;
+    if (!draggedDomain) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    container.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+    card.classList.add('drag-over');
+  });
+
+  container.addEventListener('dragleave', (e) => {
+    const card = e.target.closest('.mission-card[data-domain-key]');
+    if (!card) return;
+    // Only clear if leaving the card entirely
+    if (!card.contains(e.relatedTarget)) card.classList.remove('drag-over');
+  });
+
+  container.addEventListener('drop', async (e) => {
+    const targetCard = e.target.closest('.mission-card[data-domain-key]');
+    if (!targetCard || !draggedDomain) return;
+    e.preventDefault();
+    const targetDomain = targetCard.dataset.domainKey;
+    if (targetDomain === draggedDomain) return;
+
+    // Reorder the in-memory cache: remove draggedDomain from its old
+    // position, insert before targetDomain
+    const i1 = domainOrderCache.indexOf(draggedDomain);
+    const i2 = domainOrderCache.indexOf(targetDomain);
+    if (i1 === -1) domainOrderCache.push(draggedDomain);
+    if (i2 === -1) domainOrderCache.push(targetDomain);
+    const newOrder = domainOrderCache.filter(d => d !== draggedDomain);
+    const insertAt = newOrder.indexOf(targetDomain);
+    newOrder.splice(insertAt, 0, draggedDomain);
+    domainOrderCache = newOrder;
+    await persistDomainOrder();
+
+    // Re-render the dashboard in the new order
+    targetCard.classList.remove('drag-over');
+    await renderStaticDashboard();
+    showToast('Order saved');
+  });
+}
+
+// Initial attach
+attachDragHandlers();
+
+// ---------- Click handlers for session rows (delegated) ------------
+// Hook into the existing global click handler by adding cases for the
+// new data-actions. We do it as a separate listener on the sessions
+// drawer so the main dashboard click handler stays untouched.
+document.addEventListener('click', async (e) => {
+  const el = e.target.closest('[data-action]');
+  if (!el) return;
+  const action = el.dataset.action;
+
+  if (action === 'restore-session') {
+    e.stopPropagation();
+    await restoreSession(el.dataset.sessionId);
+    return;
+  }
+  if (action === 'delete-session') {
+    e.stopPropagation();
+    const id = el.dataset.sessionId;
+    const s  = sessionsCache.find(x => x.id === id);
+    if (!s) return;
+    if (!confirm(`Delete session "${s.name}"?`)) return;
+    await deleteSession(id);
+    showToast('Session deleted');
+    return;
+  }
+  if (action === 'rename-session') {
+    e.stopPropagation();
+    const id = el.dataset.sessionId;
+    const s  = sessionsCache.find(x => x.id === id);
+    if (!s) return;
+    const next = prompt('Rename session', s.name);
+    if (next != null && next.trim() && next !== s.name) {
+      await renameSession(id, next);
+    }
+    return;
+  }
+});

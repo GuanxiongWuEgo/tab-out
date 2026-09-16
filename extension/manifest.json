@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Tab Out",
-  "version": "1.1.0",
-  "description": "Keep tabs on your tabs. New tab page that groups your open tabs by domain, lets you close them with style, and adds Cmd-K global search + Vim-style keyboard nav. No server, no account, 100% local.",
+  "version": "1.2.0",
+  "description": "Keep tabs on your tabs. New tab page that groups your open tabs by domain, lets you close them with style, and adds Cmd-K global search + Vim-style keyboard nav + tab sessions + drag-reorder. No server, no account, 100% local.",
   "permissions": ["tabs", "activeTab", "storage"],
   "chrome_url_overrides": { "newtab": "index.html" },
   "background": { "service_worker": "background.js" },

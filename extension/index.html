@@ -26,7 +26,52 @@
       <!-- "Friday, April 4, 2026" — written by getDateDisplay() in app.js -->
       <div class="date" id="dateDisplay"></div>
     </div>
+    <div class="header-right">
+      <button class="header-btn" id="sessionsBtn" title="Saved sessions" aria-label="Saved sessions">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" /></svg>
+        <span class="header-btn-label">Sessions</span>
+      </button>
+      <button class="header-btn header-btn-primary" id="saveSessionBtn" title="Save current tabs as a session" aria-label="Save current tabs as a session">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M17.593 3.322c1.1.128 1.907 1.077 1.907 2.185V21L12 17.25 4.5 21V5.507c0-1.108.806-2.057 1.907-2.185a48.507 48.507 0 0 1 11.186 0Z" /></svg>
+        <span class="header-btn-label">Save current as session</span>
+      </button>
+    </div>
   </header>
+
+  <!-- ================================================================
+       SESSIONS DRAWER — slide-out panel listing all saved sessions
+       Hidden by default. Toggled by #sessionsBtn.
+       ================================================================ -->
+  <div class="sessions-drawer" id="sessionsDrawer" hidden tabindex="-1">
+    <div class="sessions-drawer-header">
+      <h3>Saved sessions</h3>
+      <button class="sessions-drawer-close" id="sessionsDrawerClose" aria-label="Close sessions drawer">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+    <div class="sessions-drawer-body" id="sessionsList"></div>
+    <div class="sessions-drawer-footer">
+      <span>Sessions are stored locally in <code>chrome.storage.local</code>. Restore opens every URL in a fresh window.</span>
+    </div>
+  </div>
+
+  <!-- ================================================================
+       SESSION NAME DIALOG — appears when you click "Save current"
+       Asks for a name, defaults to a date string.
+       ================================================================ -->
+  <div class="session-dialog-overlay" id="sessionDialogOverlay" hidden></div>
+  <div class="session-dialog" id="sessionDialog" hidden role="dialog" aria-labelledby="sessionDialogTitle">
+    <div class="session-dialog-title" id="sessionDialogTitle">Name this session</div>
+    <div class="session-dialog-sub">A snapshot of every tab you have open right now.</div>
+    <input type="text" class="session-dialog-input" id="sessionNameInput" placeholder="e.g. ML Week 4" autocomplete="off" maxlength="80">
+    <div class="session-dialog-actions">
+      <button class="action-btn" id="sessionDialogCancel">Cancel</button>
+      <button class="action-btn session-dialog-confirm" id="sessionDialogConfirm">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" /></svg>
+        Save
+      </button>
+    </div>
+  </div>
 
   <!-- ================================================================
        TAB OUT DUPES BANNER — appears when you have extra Tab Out tabs open
