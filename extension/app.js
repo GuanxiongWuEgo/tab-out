@@ -16,6 +16,24 @@
 'use strict';
 
 
+// ----------------------------------------------------------------
+// STORAGE KEYS  +  IN-MEMORY CACHES
+// ----------------------------------------------------------------
+// Declared at the top so INITIALIZE (further down) can safely touch
+// them on first paint. Originally these were declared near the
+// bottom of the file and triggered
+//     ReferenceError: Cannot access 'STORAGE_SESSIONS' before initialization
+// when initSessionsUI() fired before the file reached the const
+// declarations further down.
+// ----------------------------------------------------------------
+
+const STORAGE_SESSIONS     = 'sessions';
+const STORAGE_DOMAIN_ORDER = 'domainOrder';
+
+let sessionsCache    = []; // [{ id, name, createdAt, urls: [] }]
+let domainOrderCache = []; // array of domain strings, in display order
+
+
 /* ----------------------------------------------------------------
    CHROME TABS — Direct API Access
 
@@ -713,13 +731,23 @@ function escapeHtml(str) {
     .replace(/'/g, '&#39;');
 }
 
-// Tiny inline SVG used when chrome://favicon/ can't help (file://, etc.)
+// Tiny inline SVG used as the favicon fallback for every tab.
+//
+// History:
+//   v1.0  -> used https://www.google.com/s2/favicons (leaks browsing history to Google)
+//   v1.1  -> switched to chrome://favicon/<url> (Chrome's internal endpoint)
+//   v1.2.1 -> discovered chrome://favicon/* CANNOT be loaded from an extension origin
+//           (Chrome blocks it as 'Not allowed to load local resource'). So we
+//           revert to a fully inline SVG. Zero network, zero privacy leak.
+//           The chip's text label is the primary identifier anyway.
 const FALLBACK_FAVICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" rx="3" fill="#d4b896"/><text x="8" y="11.5" font-family="system-ui, sans-serif" font-size="9" font-weight="600" text-anchor="middle" fill="#5a4a32">?</text></svg>`;
 const FALLBACK_FAVICON_DATAURI = 'data:image/svg+xml;utf8,' + encodeURIComponent(FALLBACK_FAVICON_SVG);
 
 function getFaviconUrl(tabUrl) {
-  if (!tabUrl || !/^https?:\/\//i.test(tabUrl)) return FALLBACK_FAVICON_DATAURI;
-  return `chrome://favicon/${tabUrl}`;
+  // tabUrl is kept in the signature for API stability, but we always
+  // return the inline SVG. See comment on FALLBACK_FAVICON_SVG above.
+  void tabUrl;
+  return FALLBACK_FAVICON_DATAURI;
 }
 
 
@@ -1951,11 +1979,10 @@ _navObserver.observe(document.getElementById('openTabsMissions') || document.bod
 // ===================================================================
 
 // ---------- storage keys (kept in one place) ----------------------
-const STORAGE_SESSIONS    = 'sessions';
-const STORAGE_DOMAIN_ORDER = 'domainOrder';
+// (STORAGE_SESSIONS / STORAGE_DOMAIN_ORDER / sessionsCache /
+// domainOrderCache are declared at the top of this file so the
+// INITIALIZE block below can reach them on first paint.)
 
-// ---------- Sessions: in-memory cache + load/save -----------------
-let sessionsCache = []; // [{ id, name, createdAt, urls: [] }]
 
 async function loadSessions() {
   try {
@@ -2130,7 +2157,6 @@ function renderSessionsList() {
 }
 
 // ---------- Domain-order persistence -------------------------------
-let domainOrderCache = []; // array of domain strings, in display order
 
 async function loadDomainOrder() {
   try {
