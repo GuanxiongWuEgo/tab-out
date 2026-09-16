@@ -1853,19 +1853,79 @@ header {
 .session-tab-text {
   flex: 1;
   min-width: 0;
-  font: 400 12.5px/1.3 ui-monospace, 'SF Mono', Menlo, monospace;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+
+/* v1.4: primary line is the tab title (not URL).
+   Secondary muted line shows hostname + path for context. */
+.session-tab-title {
+  font: 500 13px/1.3 'DM Sans', system-ui, sans-serif;
   color: var(--ink, #2d261e);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.session-tab-text .session-tab-hostname {
-  font: 500 12.5px/1.3 'DM Sans', system-ui, sans-serif;
-  color: var(--ink, #2d261e);
+.session-tab-sub {
+  font: 400 11px/1.3 ui-monospace, 'SF Mono', Menlo, monospace;
+  color: var(--muted, #8a7e6e);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.session-tab-sub .session-tab-hostname {
+  font: 500 11px/1.3 'DM Sans', system-ui, sans-serif;
+  color: var(--muted, #8a7e6e);
   margin-right: 4px;
 }
-.session-tab-text .session-tab-path-mono {
+.session-tab-sub .session-tab-path-mono {
   color: var(--muted, #8a7e6e);
+}
+
+/* v1.4: per-tab inline rename pencil. Always visible (low opacity),
+  brighten on row hover. Click swaps title cell for an input. */
+.session-tab-rename {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: var(--muted, #8a7e6e);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.25;
+  transition: opacity 0.12s, background 0.1s, color 0.1s;
+  flex-shrink: 0;
+}
+.session-tab-row:hover .session-tab-rename {
+  opacity: 0.85;
+}
+.session-tab-rename:hover {
+  opacity: 1 !important;
+  background: rgba(200, 113, 58, 0.12);
+  color: var(--accent-amber, #c8713a);
+}
+.session-tab-rename svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* v1.4: inline rename input that replaces the title cell. */
+.session-tab-title-input {
+  font: 500 13px/1.3 'DM Sans', system-ui, sans-serif;
+  color: var(--ink, #2d261e);
+  background: var(--paper, #faf6ef);
+  border: 1px solid var(--accent-amber, #c8713a);
+  border-radius: 3px;
+  padding: 2px 6px;
+  width: 100%;
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(200, 113, 58, 0.15);
 }
 
 /* v1.3.1: small green dot for tabs currently open in the browser */

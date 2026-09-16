@@ -1814,17 +1814,41 @@ async function createSessionFromOpenTabs(name) {
     return null;
   }
   const cleanName = (name || '').trim() || `Session ${new Date().toLocaleDateString()}`;
+  // De-dupe by URL while preserving the first-seen title for each URL.
+  // v1.4: save both urls[] and titles[] (parallel arrays, titles[i] is
+  // the title for urls[i]). If chrome.tabs.query fails for any reason
+  // we fall back to URL-derived labels.
+  const seen = new Map();
+  const urls = [];
+  const titles = [];
+  for (const t of realTabs) {
+    if (!t.url || seen.has(t.url)) continue;
+    seen.set(t.url, true);
+    urls.push(t.url);
+    titles.push((t.title && t.title.trim()) || hostnameFromUrl(t.url) || t.url);
+  }
   const session = {
     id:        shortId(),
     name:      cleanName,
     createdAt: Date.now(),
-    urls:      Array.from(new Set(realTabs.map(t => t.url).filter(Boolean))),
+    urls,
+    titles,
   };
   sessionsCache.unshift(session); // newest first
   await persistSessions();
   renderSessionsList();
   showToast(`Saved session "${cleanName}" · ${session.urls.length} tabs`);
   return session;
+}
+
+// Best-effort hostname from a URL string (safe to call on any string).
+function hostnameFromUrl(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    return u.hostname;
+  } catch {
+    return '';
+  }
 }
 
 async function deleteSession(id) {
@@ -1982,30 +2006,51 @@ function renderSessionsListWithOpenUrls(listEl, openUrls) {
 }
 
 // Render the expanded tab list inside a session row.
-// v1.3.1: single-line layout (favicon + hostname/path) + green dot
-// indicator for tabs currently open in the browser.
+// v1.4: two-line layout (title on top, hostname/path muted below) +
+// per-row pencil for inline rename. Falls back to hostname for old
+// sessions that were saved without a titles[] array.
 function renderSessionTabs(session, openUrls) {
   if (!session.urls || session.urls.length === 0) {
     return '<div class="session-tabs-empty">No tabs in this session.</div>';
   }
-  return session.urls.map(url => {
-    let hostname = '', pathStr = url;
+  return session.urls.map((url, idx) => {
+    const title = (session.titles && session.titles[idx]) || hostnameFromUrl(url) || url;
+    let hostname = '', pathStr = '';
     try {
       const u = new URL(url);
       hostname = u.hostname;
-      // Show path only when meaningful (not just "/")
       pathStr  = u.pathname === '/' ? '' : (u.pathname + u.search + u.hash);
     } catch {}
     const isOpen = openUrls && openUrls.has(url);
     const cls = 'session-tab-row' + (isOpen ? ' session-tab-row-open' : '');
     const hint = isOpen ? 'Currently open — click to focus' : 'Click to focus (if open)';
-    return `<div class="${cls}" data-action="focus-session-tab" data-session-tab-url="${escapeHtml(url)}" title="${escapeHtml(url)} | ${hint}">
+    return `<div class="${cls}" data-action="focus-session-tab" data-session-tab-url="${escapeHtml(url)}" data-session-tab-idx="${idx}" title="${escapeHtml(url)} | ${hint}">
       <img class="session-tab-favicon" src="${getFaviconUrl(url)}" alt="">
       <div class="session-tab-text">
-        <span class="session-tab-hostname">${escapeHtml(hostname || url)}</span><span class="session-tab-path-mono">${escapeHtml(pathStr)}</span>
+        <div class="session-tab-title">${escapeHtml(title)}</div>
+        <div class="session-tab-sub"><span class="session-tab-hostname">${escapeHtml(hostname)}</span><span class="session-tab-path-mono">${escapeHtml(pathStr)}</span></div>
       </div>
+      <button class="session-tab-rename" data-action="rename-session-tab" data-session-id="${escapeHtml(session.id)}" data-session-tab-idx="${idx}" title="Rename" aria-label="Rename tab">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10" /></svg>
+      </button>
     </div>`;
   }).join('');
+}
+
+// v1.4: inline-rename a single tab inside an expanded session.
+// Replaces the title cell with an input; on blur or Enter, persists.
+async function renameSessionTab(sessionId, idx, newTitle) {
+  const s = sessionsCache.find(x => x.id === sessionId);
+  if (!s) return;
+  if (!Array.isArray(s.titles)) s.titles = s.urls.map(() => '');
+  const clean = (newTitle || '').trim();
+  if (!clean) {
+    renderSessionsList();  // revert input visually
+    return;
+  }
+  s.titles[idx] = clean;
+  await persistSessions();
+  renderSessionsList();
 }
 
 // ---------- Domain-order persistence -------------------------------
